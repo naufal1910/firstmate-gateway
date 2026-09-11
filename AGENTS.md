@@ -60,3 +60,10 @@ Checkpoint A is complete only when:
 - no public network listener exists.
 
 If Herdr's real structured protocol materially contradicts the approved technical design, stop implementation expansion and report the evidence and recommended design adjustment.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.
