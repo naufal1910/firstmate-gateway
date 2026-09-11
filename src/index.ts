@@ -14,6 +14,7 @@ export {
 
 export {
   EXPECTED_HERDR_PROTOCOL,
+  MINIMUM_HERDR_PROTOCOL,
   HerdrCompatibilityError,
   HerdrError,
   HerdrMalformedResponseError,

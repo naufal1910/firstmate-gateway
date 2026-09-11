@@ -113,24 +113,63 @@ test('rejects malformed responses', async () => {
   await assert.rejects(client.ping(), HerdrMalformedResponseError);
 });
 
-test('rejects protocol mismatch', async () => {
+test('rejects a protocol older than the compatibility floor', async () => {
   const client = new HerdrSocketClient({
-    exchange: exchangeFrom(() => ({ type: 'pong', version: 'future', protocol: 999 })),
-    expectedProtocol: 20,
+    exchange: exchangeFrom(() => ({ type: 'pong', version: 'old', protocol: 19 })),
+    minimumProtocol: 20,
   });
 
   await assert.rejects(client.probeCompatibility(), (error: unknown) => {
-    return error instanceof HerdrCompatibilityError && error.message.includes('incompatible');
+    return error instanceof HerdrCompatibilityError && error.message.includes('older than');
   });
 });
 
-test('rejects a missing required method explicitly', async () => {
+test('accepts a future protocol when required methods and response contracts remain compatible', async () => {
+  const client = new HerdrSocketClient({
+    exchange: exchangeFrom((request) => {
+      switch (request.method) {
+        case 'ping':
+          return { type: 'pong', version: '0.9.0', protocol: 21 };
+        case 'agent.list':
+          return { type: 'agent_list', agents: [{ ...agent, future_agent_field: 'ignored' }] };
+        case 'agent.prompt':
+          return { type: 'agent_prompted', agent: { ...agent, future_prompt_field: true } };
+        case 'agent.read':
+          return {
+            type: 'pane_read',
+            read: {
+              pane_id: 'w1:p1',
+              workspace_id: 'w1',
+              tab_id: 'w1:t1',
+              source: 'detection',
+              format: 'text',
+              text: 'future protocol probe output',
+              revision: 8,
+              truncated: false,
+              future_read_field: 'ignored',
+            },
+          };
+      }
+    }),
+  });
+
+  const report = await client.probeCompatibility();
+  assert.equal(report.protocol, 21);
+  assert.deepEqual(report.methods, {
+    ping: 'supported',
+    'agent.list': 'supported',
+    'agent.prompt': 'supported',
+    'agent.read': 'supported',
+  });
+});
+
+test('rejects a missing required method explicitly even in a future protocol', async () => {
   const client = new HerdrSocketClient({
     exchange: async (request) => {
       if (request.method === 'ping') {
         return {
           id: request.id,
-          result: { type: 'pong', version: '0.8.2', protocol: 20 },
+          result: { type: 'pong', version: '0.9.0', protocol: 21 },
         };
       }
       if (request.method === 'agent.list') {
@@ -146,7 +185,25 @@ test('rejects a missing required method explicitly', async () => {
     },
   });
 
-  await assert.rejects(client.probeCompatibility(), HerdrCompatibilityError);
+  await assert.rejects(client.probeCompatibility(), (error: unknown) => {
+    return error instanceof HerdrCompatibilityError && error.message.includes('agent.prompt');
+  });
+});
+
+test('normalizes unknown future agent statuses and preserves safe raw detail', async () => {
+  const client = new HerdrSocketClient({
+    exchange: exchangeFrom((request) => {
+      assert.equal(request.method, 'agent.list');
+      return {
+        type: 'agent_list',
+        agents: [{ ...agent, agent_status: 'paused_by_policy' }],
+      };
+    }),
+  });
+
+  const agents = await client.listAgents();
+  assert.equal(agents[0]?.agentStatus, 'unknown');
+  assert.equal(agents[0]?.rawAgentStatus, 'paused_by_policy');
 });
 
 test('does not probe live prompts or reads', async () => {

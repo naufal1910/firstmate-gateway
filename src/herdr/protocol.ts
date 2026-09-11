@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { createConnection, type Socket } from 'node:net';
 
-export const EXPECTED_HERDR_PROTOCOL = 20;
+/**
+ * The oldest protocol version whose required method and response contracts are
+ * known to this client. Newer versions remain eligible when those contracts
+ * still validate during the compatibility probe.
+ */
+export const MINIMUM_HERDR_PROTOCOL = 20;
+/** @deprecated Use MINIMUM_HERDR_PROTOCOL; this is a compatibility floor, not an exact pin. */
+export const EXPECTED_HERDR_PROTOCOL = MINIMUM_HERDR_PROTOCOL;
 
 const READ_SOURCES = ['visible', 'recent', 'recent-unwrapped', 'detection'] as const;
 const READ_FORMATS = ['text', 'ansi'] as const;
@@ -35,6 +42,8 @@ export interface HerdrPing {
 export interface HerdrAgent {
   readonly terminalId: string;
   readonly agentStatus: AgentStatus;
+  /** Original Herdr value when it is newer than the statuses known by this client. */
+  readonly rawAgentStatus?: string;
   readonly workspaceId: string;
   readonly tabId: string;
   /** Runtime-only address. It is never written by this package to configuration. */
@@ -77,6 +86,9 @@ export interface HerdrSocketClientOptions {
   readonly socketPath?: string;
   readonly timeoutMs?: number;
   readonly exchange?: HerdrExchange;
+  /** Minimum protocol version accepted after required methods are proven. */
+  readonly minimumProtocol?: number;
+  /** @deprecated Use minimumProtocol; interpreted as a minimum, not an exact match. */
   readonly expectedProtocol?: number;
 }
 
@@ -179,14 +191,13 @@ function parseObjectResponse(value: unknown, context: string): Record<string, un
 
 function parseAgent(value: unknown, context: string): HerdrAgent {
   const agent = parseObjectResponse(value, context);
-  const status = requiredString(agent, 'agent_status', context);
-  if (!(AGENT_STATUSES as readonly string[]).includes(status)) {
-    throw new HerdrMalformedResponseError(`${context} has unsupported agent_status`);
-  }
+  const rawStatus = requiredString(agent, 'agent_status', context);
+  const isKnownStatus = (AGENT_STATUSES as readonly string[]).includes(rawStatus);
+  const status: AgentStatus = isKnownStatus ? (rawStatus as AgentStatus) : 'unknown';
 
   const parsed: HerdrAgent = {
     terminalId: requiredString(agent, 'terminal_id', context),
-    agentStatus: status as AgentStatus,
+    agentStatus: status,
     workspaceId: requiredString(agent, 'workspace_id', context),
     tabId: requiredString(agent, 'tab_id', context),
     paneId: requiredString(agent, 'pane_id', context),
@@ -200,6 +211,7 @@ function parseAgent(value: unknown, context: string): HerdrAgent {
 
   return {
     ...parsed,
+    ...(isKnownStatus ? {} : { rawAgentStatus: rawStatus }),
     ...(agentKind === undefined ? {} : { agent: agentKind }),
     ...(cwd === undefined ? {} : { cwd }),
     ...(foregroundCwd === undefined ? {} : { foregroundCwd }),
@@ -419,7 +431,7 @@ export function createUnixSocketExchange(socketPath: string, timeoutMs = 5_000):
 
 export class HerdrSocketClient {
   private readonly exchange: HerdrExchange;
-  private readonly expectedProtocol: number;
+  private readonly minimumProtocol: number;
 
   public constructor(options: HerdrSocketClientOptions) {
     if (options.exchange !== undefined && options.socketPath !== undefined) {
@@ -429,9 +441,16 @@ export class HerdrSocketClient {
       throw new HerdrTransportError('Herdr socketPath or exchange is required');
     }
     this.exchange = options.exchange ?? createUnixSocketExchange(options.socketPath as string, options.timeoutMs);
-    this.expectedProtocol = options.expectedProtocol ?? EXPECTED_HERDR_PROTOCOL;
-    if (!Number.isSafeInteger(this.expectedProtocol) || this.expectedProtocol < 0) {
-      throw new HerdrCompatibilityError('Expected Herdr protocol must be a non-negative integer');
+    if (
+      options.minimumProtocol !== undefined &&
+      options.expectedProtocol !== undefined &&
+      options.minimumProtocol !== options.expectedProtocol
+    ) {
+      throw new HerdrCompatibilityError('minimumProtocol and expectedProtocol must match when both are configured');
+    }
+    this.minimumProtocol = options.minimumProtocol ?? options.expectedProtocol ?? MINIMUM_HERDR_PROTOCOL;
+    if (!Number.isSafeInteger(this.minimumProtocol) || this.minimumProtocol < 0) {
+      throw new HerdrCompatibilityError('Minimum Herdr protocol must be a non-negative integer');
     }
   }
 
@@ -474,9 +493,9 @@ export class HerdrSocketClient {
    */
   public async probeCompatibility(): Promise<HerdrCompatibilityReport> {
     const ping = await this.probeCall('ping', () => this.ping());
-    if (ping.protocol !== this.expectedProtocol) {
+    if (ping.protocol < this.minimumProtocol) {
       throw new HerdrCompatibilityError(
-        `Herdr protocol ${ping.protocol} is incompatible; expected ${this.expectedProtocol}`,
+        `Herdr protocol ${ping.protocol} is older than the minimum supported protocol ${this.minimumProtocol}`,
       );
     }
 
