@@ -1,0 +1,15 @@
+# Copy this file to config/local.yaml and replace the example values.
+# Local configuration is ignored by Git and must never contain pane IDs.
+version: 1
+
+targets:
+  firstmate:
+    herdr_session: replace-with-local-session
+    firstmate_home: /absolute/path/to/firstmate
+    agent: pi
+
+  # Add more named targets as needed. Each alias must be unique.
+  # firstmate2:
+  #   herdr_session: replace-with-local-session
+  #   firstmate_home: /absolute/path/to/firstmate2
+  #   agent: pi

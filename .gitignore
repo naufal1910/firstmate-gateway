@@ -1,0 +1,13 @@
+node_modules/
+dist/
+
+# Local machine configuration; never commit real Herdr paths or targets.
+config/local.yaml
+config/local.yml
+config/*.local.yaml
+config/*.local.yml
+
+# Tooling and coverage output.
+coverage/
+.nyc_output/
+*.tsbuildinfo

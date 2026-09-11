@@ -2,7 +2,7 @@
 
 A safe gateway for connecting ChatGPT and other clients to FirstMate instances running under Herdr.
 
-> **Status:** design complete; implementation starting with Tasks 1–3 and Checkpoint A.
+> **Status:** the Tasks 1–3 foundation and Checkpoint A compatibility/configuration work are implemented; later product operations remain intentionally disabled.
 
 ## What It Is
 
@@ -49,6 +49,31 @@ The project does **not** expose arbitrary shell, sudo, filesystem, or generic te
 - MCP as an adapter over Gateway Core
 - local/private-first deployment
 - npm as the planned primary distribution channel
+
+## Local foundation
+
+The package targets Node.js 24 LTS, uses ESM, and is developed with pnpm:
+
+```sh
+pnpm install
+pnpm check
+node dist/cli.js --help
+node dist/cli.js --version
+```
+
+The committed [`config/example.yaml`](./config/example.yaml) is safe to copy. Keep real machine configuration in the ignored `config/local.yaml` (or set `FIRSTMATE_GATEWAY_CONFIG` to another local path):
+
+```yaml
+version: 1
+
+targets:
+  firstmate2:
+    herdr_session: firstmate-b
+    firstmate_home: /absolute/path/to/firstmate2
+    agent: pi
+```
+
+The current milestone exposes the reusable YAML validator and the structured Herdr socket compatibility client as TypeScript APIs. It does not yet expose target resolution, status, prompt delivery, raw reads, MCP, HTTP, authentication, or authorization commands; those belong to later authorized tasks.
 
 ## Project Documentation
 
