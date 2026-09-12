@@ -4,8 +4,8 @@ import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { VERSION } from './index.js';
-import { Gateway, type DoctorReport, type TargetStatus, type TargetSummary } from './gateway.js';
-import { isGatewayError, type GatewayErrorCode } from './errors.js';
+import { createRequestId, Gateway, type DoctorReport, type TargetStatus, type TargetSummary } from './gateway.js';
+import { GatewayError, withRequestId, type GatewayErrorPayload } from './errors.js';
 
 const HELP = `firstmate-gateway ${VERSION}
 
@@ -116,18 +116,12 @@ function printDoctor(report: DoctorReport, json: boolean): void {
   }
 }
 
-function errorPayload(error: unknown): { readonly code: GatewayErrorCode | 'INTERNAL_ERROR'; readonly message: string } {
-  if (isGatewayError(error)) {
-    return { code: error.code, message: error.message };
-  }
-  return {
-    code: 'INTERNAL_ERROR',
-    message: error instanceof Error ? error.message : 'unexpected Gateway failure',
-  };
+function errorPayload(error: unknown, requestId: string): GatewayErrorPayload {
+  return withRequestId(error, requestId).toJSON();
 }
 
-function printError(error: unknown, json: boolean): void {
-  const payload = errorPayload(error);
+function printError(error: unknown, json: boolean, requestId: string): void {
+  const payload = errorPayload(error, requestId);
   if (json) {
     printJson({ error: payload });
     return;
@@ -136,6 +130,7 @@ function printError(error: unknown, json: boolean): void {
 }
 
 export async function main(args: readonly string[] = process.argv.slice(2)): Promise<number> {
+  const requestId = createRequestId();
   const parsed = parseArgs(args);
 
   if (parsed.version) {
@@ -147,10 +142,8 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
     return 0;
   }
   if (parsed.error !== undefined) {
-    if (parsed.json) {
-      printJson({ error: { code: 'INVALID_ARGUMENT', message: parsed.error } });
-    } else {
-      console.error(`INVALID_ARGUMENT: ${parsed.error}`);
+    printError(new GatewayError('INVALID_ARGUMENT', parsed.error, undefined, { requestId }), parsed.json, requestId);
+    if (!parsed.json) {
       console.error('Run "firstmate-gateway --help" for usage.');
     }
     return 2;
@@ -160,20 +153,21 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
   try {
     switch (parsed.command) {
       case 'targets':
-        printTargets(await gateway.listTargets(), parsed.json);
+        printTargets(await gateway.listTargets({ requestId }), parsed.json);
         return 0;
       case 'status':
-        printStatus(await gateway.getStatus(parsed.target as string), parsed.json);
+        printStatus(await gateway.getStatus(parsed.target as string, { requestId }), parsed.json);
         return 0;
       case 'doctor': {
-        const report = await gateway.doctor();
+        const report = await gateway.doctor({ requestId });
         printDoctor(report, parsed.json);
         return report.ok ? 0 : 1;
       }
     }
   } catch (error) {
-    printError(error, parsed.json);
-    return isGatewayError(error) && error.code === 'INVALID_ARGUMENT' ? 2 : 1;
+    const gatewayError = withRequestId(error, requestId);
+    printError(gatewayError, parsed.json, requestId);
+    return gatewayError.code === 'INVALID_ARGUMENT' ? 2 : 1;
   }
 
   return 2;

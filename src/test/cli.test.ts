@@ -49,8 +49,31 @@ test('status JSON errors use the stable machine-readable envelope', () => {
       env: { ...process.env, FIRSTMATE_GATEWAY_CONFIG: configPath },
     });
     assert.equal(result.status, 1);
-    assert.deepEqual(JSON.parse(result.stdout as string), {
-      error: { code: 'TARGET_NOT_CONFIGURED', message: 'target alias is not configured' },
-    });
+    const payload = JSON.parse(result.stdout as string) as {
+      readonly error: {
+        readonly code: string;
+        readonly message: string;
+        readonly requestId: string;
+        readonly details?: unknown;
+      };
+    };
+    assert.equal(payload.error.code, 'TARGET_NOT_CONFIGURED');
+    assert.equal(payload.error.message, 'target alias is not configured');
+    assert.match(payload.error.requestId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.deepEqual(Object.keys(payload.error).sort(), ['code', 'message', 'requestId']);
   });
+});
+
+test('invalid JSON CLI arguments use the same error envelope', () => {
+  const result = spawnSync(process.execPath, [cliPath, 'status', '--json'], {
+    encoding: 'utf8',
+    env: { ...process.env },
+  });
+  assert.equal(result.status, 2);
+  const payload = JSON.parse(result.stdout as string) as {
+    readonly error: { readonly code: string; readonly message: string; readonly requestId: string };
+  };
+  assert.equal(payload.error.code, 'INVALID_ARGUMENT');
+  assert.equal(payload.error.message, 'status requires a target alias');
+  assert.match(payload.error.requestId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 });

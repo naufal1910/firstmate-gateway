@@ -93,9 +93,24 @@ test('doctor preserves distinct ambiguous target failure', async () => {
   assert.equal(targetCheck?.code, 'TARGET_AMBIGUOUS');
 });
 
-test('rejects unknown configured aliases', async () => {
+test('serializes Gateway errors with the stable invocation envelope', async () => {
+  const gateway = new Gateway({ config });
+  await assert.rejects(gateway.getStatus('missing', { requestId: 'gateway-request-123' }), (error: unknown) => {
+    assert.ok(error instanceof GatewayError);
+    assert.deepEqual(error.toJSON(), {
+      code: 'TARGET_NOT_CONFIGURED',
+      message: 'target alias is not configured',
+      requestId: 'gateway-request-123',
+    });
+    return true;
+  });
+});
+
+test('generates an opaque request ID for Gateway errors when omitted', async () => {
   const gateway = new Gateway({ config });
   await assert.rejects(gateway.getStatus('missing'), (error: unknown) =>
-    error instanceof GatewayError && error.code === 'TARGET_NOT_CONFIGURED',
+    error instanceof GatewayError &&
+    error.code === 'TARGET_NOT_CONFIGURED' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(error.requestId),
   );
 });

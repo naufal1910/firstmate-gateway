@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { loadConfigFile, type GatewayConfig, type TargetConfig } from './config.js';
-import { GatewayError, type SafeErrorDetails } from './errors.js';
+import { GatewayError, type SafeErrorDetails, withRequestId } from './errors.js';
 import {
   HerdrCompatibilityError,
   HerdrError,
@@ -34,6 +34,7 @@ export interface DoctorCheck {
   readonly ok: boolean;
   readonly code?: string;
   readonly message: string;
+  readonly requestId?: string;
   readonly details?: SafeErrorDetails;
 }
 
@@ -47,6 +48,11 @@ export interface GatewayDependencies {
   readonly configPath?: string;
   readonly sessionLocator?: HerdrSessionLocator;
   readonly createClient?: (endpoint: HerdrSessionEndpoint) => HerdrSocketClient;
+}
+
+export interface GatewayInvocationOptions {
+  /** An opaque ID for this Gateway operation; never use prompt or output content. */
+  readonly requestId?: string;
 }
 
 function errorCode(error: unknown): string | undefined {
@@ -93,6 +99,18 @@ function mapHerdrError(error: unknown): GatewayError {
   });
 }
 
+async function runGatewayOperation<T>(
+  requestId: string | undefined,
+  operation: (operationRequestId: string) => Promise<T>,
+): Promise<T> {
+  const operationRequestId = requestId ?? createRequestId();
+  try {
+    return await operation(operationRequestId);
+  } catch (error) {
+    throw withRequestId(error, operationRequestId);
+  }
+}
+
 export class Gateway {
   private readonly config: GatewayConfig | undefined;
   private readonly configPath: string | undefined;
@@ -106,7 +124,19 @@ export class Gateway {
     this.createClient = dependencies.createClient ?? ((endpoint) => new HerdrSocketClient({ socketPath: endpoint.socketPath }));
   }
 
-  public async listTargets(): Promise<readonly TargetSummary[]> {
+  public listTargets(options: GatewayInvocationOptions = {}): Promise<readonly TargetSummary[]> {
+    return runGatewayOperation(options.requestId, () => this.listTargetsOperation());
+  }
+
+  public getStatus(alias: string, options: GatewayInvocationOptions = {}): Promise<TargetStatus> {
+    return runGatewayOperation(options.requestId, () => this.getStatusOperation(alias));
+  }
+
+  public doctor(options: GatewayInvocationOptions = {}): Promise<DoctorReport> {
+    return runGatewayOperation(options.requestId, (requestId) => this.doctorOperation(requestId));
+  }
+
+  private async listTargetsOperation(): Promise<readonly TargetSummary[]> {
     const config = await this.getConfig();
     return Object.values(config.targets).map((target) => ({
       target: target.alias,
@@ -115,7 +145,7 @@ export class Gateway {
     }));
   }
 
-  public async getStatus(alias: string): Promise<TargetStatus> {
+  private async getStatusOperation(alias: string): Promise<TargetStatus> {
     const { config, target } = await this.getTarget(alias);
     const { agents } = await this.getAgents(target);
     const resolved = resolveTarget(target, agents);
@@ -128,8 +158,12 @@ export class Gateway {
     };
   }
 
-  public async doctor(): Promise<DoctorReport> {
+  private async doctorOperation(requestId: string): Promise<DoctorReport> {
     const checks: DoctorCheck[] = [];
+    const report = (): DoctorReport => ({
+      ok: checks.every((check) => check.ok),
+      checks: checks.map((check) => check.ok ? check : { ...check, requestId }),
+    });
     let config: GatewayConfig;
     try {
       config = await this.getConfig();
@@ -143,7 +177,7 @@ export class Gateway {
         message: errorMessage(error),
         ...(details === undefined ? {} : { details }),
       });
-      return { ok: false, checks };
+      return report();
     }
 
     const locator = this.getLocator();
@@ -172,7 +206,7 @@ export class Gateway {
           message: errorMessage(mapped),
           ...(mapped.details === undefined ? {} : { details: mapped.details }),
         });
-        return { ok: false, checks };
+        return report();
       }
     }
 
@@ -280,7 +314,7 @@ export class Gateway {
       }
     }
 
-    return { ok: checks.every((check) => check.ok), checks };
+    return report();
   }
 
   private async getConfig(): Promise<GatewayConfig> {

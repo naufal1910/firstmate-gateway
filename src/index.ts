@@ -17,7 +17,10 @@ export {
   GatewayError,
   GATEWAY_ERROR_CODES,
   type GatewayErrorCode,
+  type GatewayErrorOptions,
+  type GatewayErrorPayload,
   type SafeErrorDetails,
+  withRequestId,
 } from './errors.js';
 
 export {
@@ -26,6 +29,7 @@ export {
   type DoctorCheck,
   type DoctorReport,
   type GatewayDependencies,
+  type GatewayInvocationOptions,
   type TargetStatus,
   type TargetSummary,
 } from './gateway.js';
