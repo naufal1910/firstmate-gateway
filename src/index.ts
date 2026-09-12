@@ -1,4 +1,4 @@
-export const VERSION = '0.3.0';
+export const VERSION = '0.4.0';
 
 export {
   ConfigError,
@@ -100,3 +100,13 @@ export {
   type SemanticReader,
   type SemanticReaderProvider,
 } from './semantic.js';
+
+export {
+  createMcpServer,
+  MCP_SCHEMAS,
+  MCP_TOOL_NAMES,
+  type GatewayForMcp,
+  type McpToolName,
+} from './mcp.js';
+
+export { runStdioMcp } from './mcp-stdio.js';
