@@ -1,7 +1,8 @@
-export const VERSION = '0.1.0';
+export const VERSION = '0.2.0';
 
 export {
   ConfigError,
+  ConfigNotFoundError,
   defaultConfigPath,
   loadConfig,
   loadConfigFile,
@@ -11,6 +12,42 @@ export {
   type GatewayConfig,
   type TargetConfig,
 } from './config.js';
+
+export {
+  GatewayError,
+  GATEWAY_ERROR_CODES,
+  type GatewayErrorCode,
+  type SafeErrorDetails,
+} from './errors.js';
+
+export {
+  Gateway,
+  createRequestId,
+  type DoctorCheck,
+  type DoctorReport,
+  type GatewayDependencies,
+  type TargetStatus,
+  type TargetSummary,
+} from './gateway.js';
+
+export {
+  HerdrSessionLocator,
+  parseSessionList,
+  type HerdrCommandOptions,
+  type HerdrCommandResult,
+  type HerdrCommandRunner,
+  type HerdrSessionEndpoint,
+  type HerdrSessionInfo,
+  type HerdrSessionLocatorOptions,
+  type HerdrSocketValidator,
+} from './herdr/session.js';
+
+export {
+  resolveTarget,
+  type CwdEvidence,
+  type ResolutionEvidence,
+  type ResolvedTarget,
+} from './target.js';
 
 export {
   EXPECTED_HERDR_PROTOCOL,

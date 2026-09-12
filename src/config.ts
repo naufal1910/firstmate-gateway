@@ -4,6 +4,8 @@ import { isAbsolute, normalize, resolve } from 'node:path';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
 
+import { GatewayError } from './errors.js';
+
 const MAX_CONFIG_BYTES = 1024 * 1024;
 const ALIAS_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
 const SESSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
@@ -56,12 +58,17 @@ export interface GatewayConfig {
   readonly targets: Readonly<Record<string, TargetConfig>>;
 }
 
-export class ConfigError extends Error {
-  public readonly code = 'CONFIG_INVALID';
-
+export class ConfigError extends GatewayError {
   public constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
+    super('CONFIG_INVALID', message, undefined, options);
     this.name = 'ConfigError';
+  }
+}
+
+export class ConfigNotFoundError extends GatewayError {
+  public constructor(message = 'configuration file was not found', options?: ErrorOptions) {
+    super('CONFIG_NOT_FOUND', message, undefined, options);
+    this.name = 'ConfigNotFoundError';
   }
 }
 
@@ -133,12 +140,19 @@ export function defaultConfigPath(): string {
   return process.env.FIRSTMATE_GATEWAY_CONFIG ?? resolve('config/local.yaml');
 }
 
+function isMissingFileError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+}
+
 export function loadConfigFileSync(filePath = defaultConfigPath()): GatewayConfig {
   let source: string;
   try {
     source = readFileSync(filePath, 'utf8');
   } catch (error) {
-    throw new ConfigError(`unable to read configuration file ${filePath}`, { cause: error });
+    if (isMissingFileError(error)) {
+      throw new ConfigNotFoundError();
+    }
+    throw new ConfigError('unable to read the configuration file', { cause: error });
   }
   return parseConfig(source);
 }
@@ -148,7 +162,10 @@ export async function loadConfigFile(filePath = defaultConfigPath()): Promise<Ga
   try {
     source = await readFile(filePath, 'utf8');
   } catch (error) {
-    throw new ConfigError(`unable to read configuration file ${filePath}`, { cause: error });
+    if (isMissingFileError(error)) {
+      throw new ConfigNotFoundError();
+    }
+    throw new ConfigError('unable to read the configuration file', { cause: error });
   }
   return parseConfig(source);
 }

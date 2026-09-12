@@ -4,32 +4,178 @@ import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { VERSION } from './index.js';
+import { Gateway, type DoctorReport, type TargetStatus, type TargetSummary } from './gateway.js';
+import { isGatewayError, type GatewayErrorCode } from './errors.js';
 
 const HELP = `firstmate-gateway ${VERSION}
 
 Usage:
   firstmate-gateway --help
   firstmate-gateway --version
+  firstmate-gateway targets [--json]
+  firstmate-gateway status <target> [--json]
+  firstmate-gateway doctor [--json]
 
-This foundation release only exposes package and compatibility primitives.
-Target operations are intentionally not enabled until the later milestones.
+Read-only discovery and status commands resolve Herdr targets dynamically.
 `;
 
-export function main(args: readonly string[] = process.argv.slice(2)): number {
-  const [command] = args;
+type Command = 'targets' | 'status' | 'doctor';
 
-  if (command === '--version' || command === '-V') {
+interface ParsedArgs {
+  readonly command?: Command;
+  readonly target?: string;
+  readonly json: boolean;
+  readonly help: boolean;
+  readonly version: boolean;
+  readonly error?: string;
+}
+
+function parseArgs(args: readonly string[]): ParsedArgs {
+  let json = false;
+  let help = false;
+  let version = false;
+  const positional: string[] = [];
+
+  for (const arg of args) {
+    if (arg === '--json') {
+      json = true;
+    } else if (arg === '--help' || arg === '-h') {
+      help = true;
+    } else if (arg === '--version' || arg === '-V') {
+      version = true;
+    } else if (arg.startsWith('-')) {
+      return { json, help, version, error: `unknown option: ${arg}` };
+    } else {
+      positional.push(arg);
+    }
+  }
+
+  if (help || version) {
+    return { json, help, version };
+  }
+
+  const [command, target, extra] = positional;
+  if (command !== 'targets' && command !== 'status' && command !== 'doctor') {
+    return { json, help, version, error: 'a read-only command is required: targets, status, or doctor' };
+  }
+  if (command === 'status' && target === undefined) {
+    return { json, help, version, error: 'status requires a target alias' };
+  }
+  if (command !== 'status' && target !== undefined) {
+    return { json, help, version, error: `${command} does not accept a target alias` };
+  }
+  if (extra !== undefined) {
+    return { json, help, version, error: `unexpected argument: ${extra}` };
+  }
+
+  return { command, ...(target === undefined ? {} : { target }), json, help, version };
+}
+
+function printJson(value: unknown): void {
+  console.log(JSON.stringify(value));
+}
+
+function printTargets(targets: readonly TargetSummary[], json: boolean): void {
+  if (json) {
+    printJson({ targets });
+    return;
+  }
+  if (targets.length === 0) {
+    console.log('No configured targets.');
+    return;
+  }
+  for (const target of targets) {
+    console.log(`${target.target}\t${target.agent}\tHerdr session: ${target.herdrSession}`);
+  }
+}
+
+function printStatus(status: TargetStatus, json: boolean): void {
+  if (json) {
+    printJson(status);
+    return;
+  }
+  console.log(`${status.target}: ${status.state}`);
+  if (status.evidence.cwdSource === 'cwd') {
+    console.log('  diagnostic: used fallback runtime cwd evidence');
+  }
+  if (status.diagnostic !== undefined) {
+    console.log(`  diagnostic: ${status.diagnostic}`);
+  }
+}
+
+function printDoctor(report: DoctorReport, json: boolean): void {
+  if (json) {
+    printJson(report);
+    return;
+  }
+  console.log(`doctor: ${report.ok ? 'ok' : 'failed'}`);
+  for (const check of report.checks) {
+    const status = check.ok ? 'ok' : 'failed';
+    const code = check.code === undefined ? '' : ` [${check.code}]`;
+    console.log(`  ${status} ${check.name}${code}: ${check.message}`);
+  }
+}
+
+function errorPayload(error: unknown): { readonly code: GatewayErrorCode | 'INTERNAL_ERROR'; readonly message: string } {
+  if (isGatewayError(error)) {
+    return { code: error.code, message: error.message };
+  }
+  return {
+    code: 'INTERNAL_ERROR',
+    message: error instanceof Error ? error.message : 'unexpected Gateway failure',
+  };
+}
+
+function printError(error: unknown, json: boolean): void {
+  const payload = errorPayload(error);
+  if (json) {
+    printJson({ error: payload });
+    return;
+  }
+  console.error(`${payload.code}: ${payload.message}`);
+}
+
+export async function main(args: readonly string[] = process.argv.slice(2)): Promise<number> {
+  const parsed = parseArgs(args);
+
+  if (parsed.version) {
     console.log(VERSION);
     return 0;
   }
-
-  if (command === undefined || command === '--help' || command === '-h') {
+  if (parsed.help || args.length === 0) {
     console.log(HELP);
     return 0;
   }
+  if (parsed.error !== undefined) {
+    if (parsed.json) {
+      printJson({ error: { code: 'INVALID_ARGUMENT', message: parsed.error } });
+    } else {
+      console.error(`INVALID_ARGUMENT: ${parsed.error}`);
+      console.error('Run "firstmate-gateway --help" for usage.');
+    }
+    return 2;
+  }
 
-  console.error(`Unknown option: ${command}`);
-  console.error('Run "firstmate-gateway --help" for usage.');
+  const gateway = new Gateway();
+  try {
+    switch (parsed.command) {
+      case 'targets':
+        printTargets(await gateway.listTargets(), parsed.json);
+        return 0;
+      case 'status':
+        printStatus(await gateway.getStatus(parsed.target as string), parsed.json);
+        return 0;
+      case 'doctor': {
+        const report = await gateway.doctor();
+        printDoctor(report, parsed.json);
+        return report.ok ? 0 : 1;
+      }
+    }
+  } catch (error) {
+    printError(error, parsed.json);
+    return isGatewayError(error) && error.code === 'INVALID_ARGUMENT' ? 2 : 1;
+  }
+
   return 2;
 }
 
@@ -47,5 +193,5 @@ function isMainModule(): boolean {
 }
 
 if (isMainModule()) {
-  process.exitCode = main();
+  process.exitCode = await main();
 }
