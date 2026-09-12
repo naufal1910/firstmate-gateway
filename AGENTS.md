@@ -49,6 +49,32 @@ Do not continue into later tasks without explicit user authorization.
 - For Herdr integration, verify against the real configured test instance when the plan calls for it.
 - Do not merge pull requests without explicit user approval.
 
+## Milestone Issue Communication Protocol
+
+For each active implementation milestone, use its GitHub issue as the durable coordination log between ChatGPT and FirstMate.
+
+- The issue body defines the authorized scope, requirements, acceptance criteria, non-goals, and stop conditions.
+- ChatGPT posts implementation instructions and architecture/product decisions as comments on the same issue.
+- FirstMate posts material questions or blockers to the same issue before asking the user to relay them to ChatGPT.
+- FirstMate may post concise progress updates when they add durable engineering context; do not log routine worker activity.
+- When implementation is ready for review, FirstMate posts a `READY_FOR_REVIEW` comment containing the PR URL, exact head SHA, verification evidence, known risks, and confirmation that work stayed within scope.
+- Code-review discussion remains on the pull request. Significant decisions or scope-relevant findings from review must also be summarized back to the milestone issue.
+- Issue comments may refine implementation within the authorized milestone but must not expand scope without explicit user authorization recorded in the issue.
+- Within the authorized scope, the latest explicit ChatGPT `DECISION` comment supersedes earlier implementation guidance when they conflict.
+- Do not treat terminal/chat discussion alone as durable authorization when the milestone issue records a narrower scope.
+
+Use these prefixes for coordination comments:
+
+```text
+[CHATGPT → FIRSTMATE2][INSTRUCTION]
+[CHATGPT → FIRSTMATE2][DECISION]
+[FIRSTMATE2 → CHATGPT][QUESTION]
+[FIRSTMATE2 → CHATGPT][PROGRESS]
+[FIRSTMATE2 → CHATGPT][READY_FOR_REVIEW]
+```
+
+The terminal should stay lightweight: point the user to the milestone issue when a question, decision, or review-ready report has been recorded there.
+
 ## First Milestone Exit Criteria
 
 Checkpoint A is complete only when:
