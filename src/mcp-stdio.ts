@@ -3,7 +3,7 @@
 import { realpathSync } from 'node:fs';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { serveStdio, StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 
 import { Gateway } from './gateway.js';
 import { createMcpServer, type GatewayForMcp } from './mcp.js';
@@ -15,13 +15,15 @@ function diagnostic(kind: string): void {
 }
 
 export async function runStdioMcp(gateway: GatewayForMcp = new Gateway()): Promise<void> {
-  const server = createMcpServer(gateway);
-  const transport = new StdioServerTransport(process.stdin, process.stdout, {
-    maxBufferSize: MCP_MAX_BUFFER_BYTES,
-  });
-  transport.onerror = () => diagnostic('stdio transport error');
-  transport.onclose = () => diagnostic('stdio transport closed');
-  await server.connect(transport);
+  serveStdio(
+    () => createMcpServer(gateway),
+    {
+      onerror: () => diagnostic('stdio transport error'),
+      transport: new StdioServerTransport(process.stdin, process.stdout, {
+        maxBufferSize: MCP_MAX_BUFFER_BYTES,
+      }),
+    },
+  );
 }
 
 function isMainModule(): boolean {

@@ -3,8 +3,8 @@ import { spawn } from 'node:child_process';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const SERVER_URL = new URL('../mcp-stdio.js', import.meta.url).href;
 
@@ -49,7 +49,7 @@ function fakeServerScript(): string {
         if (input.mode === 'semantic') {
           throw new GatewayError('SEMANTIC_OUTPUT_UNAVAILABLE', 'semantic output is unavailable for this target', undefined, { requestId: options.requestId });
         }
-        return { target: input.target, mode: 'raw', requestId: options.requestId, source: input.source ?? 'recent-unwrapped', format: 'text', text: sendCalls === 1 ? 'FIRSTMATE_GATEWAY_CHECKPOINT_D_OK' : 'send-calls=' + sendCalls, revision: 1, truncated: false };
+        return { target: input.target, mode: 'raw', requestId: options.requestId, source: input.source ?? 'recent-unwrapped', format: 'text', text: input.mode === 'raw' ? (sendCalls === 1 ? 'FIRSTMATE_GATEWAY_CHECKPOINT_D_OK' : 'send-calls=' + sendCalls) : 'mode=' + String(input.mode), revision: 1, truncated: false };
       },
     };
     await runStdioMcp(gateway);
@@ -135,6 +135,17 @@ test('MCP client sees exactly four safe tools and delegates each operation throu
     assert.equal(readData.text, 'FIRSTMATE_GATEWAY_CHECKPOINT_D_OK');
     assert.equal(readData.revision, 1);
     assert.equal(readData.truncated, false);
+
+    const defaultRead = objectResult(await client.callTool({
+      name: 'firstmate_read',
+      arguments: { target: 'firstmate2' },
+    }));
+    const defaultReadData = structured(defaultRead)?.data as Record<string, unknown>;
+    assert.equal(structured(defaultRead)?.ok, true);
+    assert.equal(defaultReadData.mode, 'raw');
+    assert.equal(defaultReadData.source, 'recent-unwrapped');
+    assert.equal(defaultReadData.text, 'FIRSTMATE_GATEWAY_CHECKPOINT_D_OK');
+
     assert.equal(getStderr().includes('fake-status-called'), true);
     assert.equal(getStderr().includes('FIRSTMATE_GATEWAY_CHECKPOINT_D_OK'), false);
   } finally {
@@ -168,7 +179,7 @@ test('MCP boundary validation rejects invalid input before Gateway Core and pres
   }
 });
 
-test('malformed stdio input is contained on stderr without protocol output or a crash', async () => {
+test('malformed stdio input is safely discarded without protocol output or a crash', async () => {
   const child = spawn(process.execPath, [fileURLToPath(new URL('../mcp-stdio.js', import.meta.url))]);
   let stdout = '';
   let stderr = '';
@@ -178,7 +189,7 @@ test('malformed stdio input is contained on stderr without protocol output or a 
   const exitCode = await new Promise<number | null>((resolve) => child.once('close', resolve));
   assert.equal(exitCode, 0);
   assert.equal(stdout, '');
-  assert.equal(stderr.includes('stdio transport error'), true);
+  assert.equal(stderr.includes('FIRSTMATE_GATEWAY_CHECKPOINT_D_OK'), false);
 });
 
 test('uncertain MCP send is side-effecting exactly once and is not retried', async () => {

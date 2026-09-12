@@ -126,7 +126,7 @@ Remote HTTP, authentication, authorization, and release work are not included in
 
 ## MCP SDK compatibility evidence
 
-The MCP adapter uses the official `@modelcontextprotocol/sdk` package pinned to **1.30.0**. On 2026-09-12, `npm view @modelcontextprotocol/sdk@latest version` reported `1.30.0`; the package README and v1 API declarations document `McpServer`, `registerTool`, `StdioServerTransport`, typed Zod schemas, tool annotations, and structured tool output. The lockfile records the resolved integrity for this exact version.
+The MCP adapter uses the official v2 package split pinned to **`@modelcontextprotocol/server@2.0.0`** and **`@modelcontextprotocol/client@2.0.0`**. Immediately before updating the lockfile, `npm view @modelcontextprotocol/server version dist-tags --json` and the equivalent client command both reported `2.0.0` with `latest: 2.0.0`. The official v2 documentation ([overview](https://ts.sdk.modelcontextprotocol.io/v2/) and [protocol versions](https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions)) identifies v2 as the stable line. The published v2 declarations confirm `McpServer`/`registerTool` from `@modelcontextprotocol/server`, `serveStdio(...)` from `@modelcontextprotocol/server/stdio`, and `Client`/`StdioClientTransport` from `@modelcontextprotocol/client` and `/stdio`; the lockfile records the exact package integrities.
 
 ## Safety Principles
 

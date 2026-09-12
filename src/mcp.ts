@@ -1,5 +1,5 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { McpServer } from '@modelcontextprotocol/server';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 
 import {
@@ -66,7 +66,7 @@ const sendInputSchema = z.object({
 }).strict();
 const readInputSchema = z.object({
   target: TARGET_ALIAS,
-  mode: z.enum(['raw', 'semantic']),
+  mode: z.enum(['raw', 'semantic']).default('raw'),
   source: READ_SOURCE.optional(),
   count: z.number().int().min(MIN_READ_LINES).max(MAX_READ_LINES).optional(),
 }).strict().superRefine((input, context) => {
@@ -250,7 +250,7 @@ export function createMcpServer(gateway: GatewayForMcp): McpServer {
     outputSchema: MCP_SCHEMAS.firstmate_list.output,
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   }, async (_input, extra) => {
-    const requestId = callRequestId(extra.requestId);
+    const requestId = callRequestId(extra.mcpReq.id);
     try {
       return success(listData(await gateway.listTargets({ requestId }), requestId));
     } catch (error) {
@@ -265,7 +265,7 @@ export function createMcpServer(gateway: GatewayForMcp): McpServer {
     outputSchema: MCP_SCHEMAS.firstmate_status.output,
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   }, async (input, extra) => {
-    const requestId = callRequestId(extra.requestId);
+    const requestId = callRequestId(extra.mcpReq.id);
     try {
       return success(statusData(await gateway.getStatus(input.target, { requestId }), requestId));
     } catch (error) {
@@ -285,7 +285,7 @@ export function createMcpServer(gateway: GatewayForMcp): McpServer {
       openWorldHint: false,
     },
   }, async (input, extra) => {
-    const requestId = callRequestId(extra.requestId);
+    const requestId = callRequestId(extra.mcpReq.id);
     try {
       const result = await gateway.sendPrompt(input, { requestId });
       return success({
@@ -306,7 +306,7 @@ export function createMcpServer(gateway: GatewayForMcp): McpServer {
     outputSchema: MCP_SCHEMAS.firstmate_read.output,
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
   }, async (input, extra) => {
-    const requestId = callRequestId(extra.requestId);
+    const requestId = callRequestId(extra.mcpReq.id);
     try {
       const gatewayInput = {
         target: input.target,
