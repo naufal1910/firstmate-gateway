@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { createInterface, type Interface } from 'node:readline';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -23,6 +24,71 @@ function objectResult(result: unknown): McpCallResult {
 
 function structured(result: McpCallResult): Record<string, unknown> | undefined {
   return result.structuredContent ?? result.toolResult;
+}
+
+const UUID_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+interface RawMcpConnection {
+  readonly child: ChildProcessWithoutNullStreams;
+  readonly lines: Interface;
+  readonly nextMessage: () => Promise<Record<string, unknown>>;
+}
+
+async function connectRawMcpServer(uncertain = false): Promise<RawMcpConnection> {
+  const child = spawn(process.execPath, ['--input-type=module', '-e', fakeServerScript()], {
+    env: { ...process.env, ...(uncertain ? { MCP_FAKE_UNCERTAIN: '1' } : {}) },
+  });
+  const lines = createInterface({ input: child.stdout });
+  const nextMessage = (): Promise<Record<string, unknown>> => new Promise((resolve, reject) => {
+    const onLine = (line: string): void => {
+      try {
+        const message: unknown = JSON.parse(line);
+        assert.equal(typeof message, 'object');
+        assert.notEqual(message, null);
+        resolve(message as Record<string, unknown>);
+      } catch (error) {
+        reject(error);
+      }
+    };
+    lines.once('line', onLine);
+    child.once('error', reject);
+  });
+
+  child.stdin.write(`${JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2025-06-18',
+      capabilities: {},
+      clientInfo: { name: 'raw-gateway-test-client', version: '1.0.0' },
+    },
+  })}\n`);
+  await nextMessage();
+  child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
+
+  return { child, lines, nextMessage };
+}
+
+async function rawToolCall(
+  connection: RawMcpConnection,
+  id: string | number,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  connection.child.stdin.write(`${JSON.stringify({
+    jsonrpc: '2.0',
+    id,
+    method: 'tools/call',
+    params: { name, arguments: args },
+  })}\n`);
+  return connection.nextMessage();
+}
+
+async function closeRawMcpServer(connection: RawMcpConnection): Promise<void> {
+  connection.lines.close();
+  connection.child.kill();
+  await new Promise<void>((resolve) => connection.child.once('close', () => resolve()));
 }
 
 function fakeServerScript(): string {
@@ -96,7 +162,7 @@ test('MCP client sees exactly four safe tools and delegates each operation throu
     const list = objectResult(await client.callTool({ name: 'firstmate_list', arguments: {} }));
     assert.equal(structured(list)?.ok, true);
     const listData = structured(list)?.data as Record<string, unknown>;
-    assert.match(String(listData.requestId), /^[0-9]+$/);
+    assert.match(String(listData.requestId), UUID_REQUEST_ID);
     assert.deepEqual(listData.targets, [{ target: 'firstmate2', agent: 'pi' }]);
 
     const status = objectResult(await client.callTool({
@@ -129,7 +195,7 @@ test('MCP client sees exactly four safe tools and delegates each operation throu
     assert.equal(structured(read)?.ok, true);
     assert.equal(readData.target, 'firstmate2');
     assert.equal(readData.mode, 'raw');
-    assert.match(String(readData.requestId), /^[0-9]+$/);
+    assert.match(String(readData.requestId), UUID_REQUEST_ID);
     assert.equal(readData.source, 'recent-unwrapped');
     assert.equal(readData.format, 'text');
     assert.equal(readData.text, 'FIRSTMATE_GATEWAY_CHECKPOINT_D_OK');
@@ -172,10 +238,61 @@ test('MCP boundary validation rejects invalid input before Gateway Core and pres
     assert.equal(structured(semantic)?.ok, false);
     assert.equal(semanticError.code, 'SEMANTIC_OUTPUT_UNAVAILABLE');
     assert.equal(semanticError.message, 'semantic output is unavailable for this target');
-    assert.match(String(semanticError.requestId), /^[0-9]+$/);
+    assert.match(String(semanticError.requestId), UUID_REQUEST_ID);
     assert.equal(JSON.stringify(semantic).includes('FIRSTMATE_GATEWAY_CHECKPOINT_D_OK'), false);
   } finally {
     await closeClient(client);
+  }
+});
+
+test('MCP request IDs are isolated from bounded Gateway IDs on long-string success', async () => {
+  const connection = await connectRawMcpServer();
+  try {
+    const mcpRequestId = 'm'.repeat(512);
+    const response = await rawToolCall(connection, mcpRequestId, 'firstmate_send', {
+      target: 'firstmate2',
+      message: 'long MCP request ID success',
+    });
+    assert.equal(response.id, mcpRequestId);
+    const result = response.result as Record<string, unknown>;
+    const envelope = result.structuredContent as Record<string, unknown>;
+    const data = envelope.data as Record<string, unknown>;
+    assert.equal(envelope.ok, true);
+    assert.match(String(data.requestId), UUID_REQUEST_ID);
+    assert.ok(String(data.requestId).length <= 128);
+    assert.notEqual(data.requestId, mcpRequestId);
+  } finally {
+    await closeRawMcpServer(connection);
+  }
+});
+
+test('large numeric MCP request IDs keep uncertain send errors valid and invoke Gateway once', async () => {
+  const connection = await connectRawMcpServer(true);
+  try {
+    const mcpRequestId = Number.MAX_SAFE_INTEGER;
+    const response = await rawToolCall(connection, mcpRequestId, 'firstmate_send', {
+      target: 'firstmate2',
+      message: 'large numeric MCP request ID uncertain delivery',
+    });
+    assert.equal(response.id, mcpRequestId);
+    const result = response.result as Record<string, unknown>;
+    const envelope = result.structuredContent as Record<string, unknown>;
+    const error = envelope.error as Record<string, unknown>;
+    assert.equal(result.isError, true);
+    assert.equal(envelope.ok, false);
+    assert.equal(error.code, 'PROMPT_DELIVERY_UNCERTAIN');
+    assert.match(String(error.requestId), UUID_REQUEST_ID);
+    assert.ok(String(error.requestId).length <= 128);
+    assert.notEqual(error.requestId, String(mcpRequestId));
+
+    const readResponse = await rawToolCall(connection, 2, 'firstmate_read', {
+      target: 'firstmate2',
+      mode: 'raw',
+    });
+    const readEnvelope = (readResponse.result as Record<string, unknown>).structuredContent as Record<string, unknown>;
+    assert.equal((readEnvelope.data as Record<string, unknown>).text, 'FIRSTMATE_GATEWAY_CHECKPOINT_D_OK');
+  } finally {
+    await closeRawMcpServer(connection);
   }
 });
 

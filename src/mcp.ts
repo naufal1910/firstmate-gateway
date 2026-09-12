@@ -8,6 +8,7 @@ import {
   MAX_PROMPT_BYTES,
   MAX_READ_LINES,
   MIN_READ_LINES,
+  createRequestId,
   type Gateway,
   type ReadResult,
   type TargetStatus,
@@ -147,10 +148,6 @@ type McpEnvelope = {
   readonly error: ReturnType<GatewayError['toJSON']>;
 };
 
-function requestIdOf(value: string | number): string {
-  return String(value);
-}
-
 function success(data: Record<string, unknown>): CallToolResult {
   const result: McpEnvelope = { ok: true, data, error: null };
   return {
@@ -184,10 +181,6 @@ function failure(error: unknown, requestId: string): CallToolResult {
   };
 }
 
-function callRequestId(requestId: string | number): string {
-  return requestIdOf(requestId);
-}
-
 function listData(targets: readonly TargetSummary[], requestId: string): Record<string, unknown> {
   return {
     requestId,
@@ -204,7 +197,7 @@ function statusData(status: TargetStatus, requestId: string): Record<string, unk
   };
 }
 
-function readData(result: ReadResult): Record<string, unknown> {
+function readData(result: ReadResult, requestId: string): Record<string, unknown> {
   if (Buffer.byteLength(result.text, 'utf8') > MAX_MCP_TEXT_BYTES) {
     throw new GatewayError(
       result.mode === 'raw' ? 'READ_FAILED' : 'SEMANTIC_OUTPUT_UNAVAILABLE',
@@ -216,7 +209,7 @@ function readData(result: ReadResult): Record<string, unknown> {
     return {
       target: result.target,
       mode: result.mode,
-      requestId: result.requestId,
+      requestId,
       source: result.source,
       format: result.format,
       text: result.text,
@@ -227,7 +220,7 @@ function readData(result: ReadResult): Record<string, unknown> {
   return {
     target: result.target,
     mode: result.mode,
-    requestId: result.requestId,
+    requestId,
     provider: result.provider,
     text: result.text,
   };
@@ -249,8 +242,8 @@ export function createMcpServer(gateway: GatewayForMcp): McpServer {
     inputSchema: listInputSchema,
     outputSchema: MCP_SCHEMAS.firstmate_list.output,
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  }, async (_input, extra) => {
-    const requestId = callRequestId(extra.mcpReq.id);
+  }, async () => {
+    const requestId = createRequestId();
     try {
       return success(listData(await gateway.listTargets({ requestId }), requestId));
     } catch (error) {
@@ -264,8 +257,8 @@ export function createMcpServer(gateway: GatewayForMcp): McpServer {
     inputSchema: statusInputSchema,
     outputSchema: MCP_SCHEMAS.firstmate_status.output,
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  }, async (input, extra) => {
-    const requestId = callRequestId(extra.mcpReq.id);
+  }, async (input) => {
+    const requestId = createRequestId();
     try {
       return success(statusData(await gateway.getStatus(input.target, { requestId }), requestId));
     } catch (error) {
@@ -284,14 +277,14 @@ export function createMcpServer(gateway: GatewayForMcp): McpServer {
       idempotentHint: false,
       openWorldHint: false,
     },
-  }, async (input, extra) => {
-    const requestId = callRequestId(extra.mcpReq.id);
+  }, async (input) => {
+    const requestId = createRequestId();
     try {
       const result = await gateway.sendPrompt(input, { requestId });
       return success({
         target: result.target,
         accepted: true,
-        requestId: result.requestId,
+        requestId,
         observedState: result.observedState,
       });
     } catch (error) {
@@ -305,8 +298,8 @@ export function createMcpServer(gateway: GatewayForMcp): McpServer {
     inputSchema: readInputSchema,
     outputSchema: MCP_SCHEMAS.firstmate_read.output,
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  }, async (input, extra) => {
-    const requestId = callRequestId(extra.mcpReq.id);
+  }, async (input) => {
+    const requestId = createRequestId();
     try {
       const gatewayInput = {
         target: input.target,
@@ -316,7 +309,7 @@ export function createMcpServer(gateway: GatewayForMcp): McpServer {
           ...(input.count === undefined ? {} : { count: input.count }),
         }),
       };
-      return success(readData(await gateway.read(gatewayInput, { requestId })));
+      return success(readData(await gateway.read(gatewayInput, { requestId }), requestId));
     } catch (error) {
       return failure(error, requestId);
     }
