@@ -58,6 +58,9 @@ remote:
   bind_host: 127.0.0.1
   port: 0
   resource: https://gateway.example.test/mcp
+  authorization_servers:
+    - https://identity.example.test/tenant
+    - https://backup-identity.example.test
   allowed_hosts: [127.0.0.1]
   authorization:
     principals:
@@ -71,6 +74,10 @@ remote:
     port: 0,
     allowPublicBind: false,
     resource: 'https://gateway.example.test/mcp',
+    authorizationServers: [
+      'https://identity.example.test/tenant',
+      'https://backup-identity.example.test/',
+    ],
     allowedHosts: ['127.0.0.1'],
     allowedOrigins: [],
     principals: { 'oauth-client': { targets: ['firstmate2'] } },
@@ -97,6 +104,7 @@ test('remote startup configuration fails closed when security policy is incomple
       bind_host: '0.0.0.0',
       port: 3000,
       resource: 'https://gateway.example.test/mcp',
+      authorization_servers: ['https://identity.example.test'],
       allowed_hosts: ['gateway.example.test'],
       authorization: { principals: { operator: { targets: ['firstmate2'] } } },
     },
@@ -110,10 +118,33 @@ test('remote startup configuration fails closed when security policy is incomple
       bind_host: '127.0.0.1',
       port: 3000,
       resource: 'http://gateway.example.test/mcp',
+      authorization_servers: ['http://identity.example.test'],
       allowed_hosts: ['127.0.0.1'],
       authorization: { principals: { operator: { targets: ['not-configured'] } } },
     },
   }), ConfigError);
+
+  for (const authorizationServers of [
+    [],
+    ['http://identity.example.test'],
+    ['https://user:secret@identity.example.test'],
+    ['https://identity.example.test?tenant=secret'],
+    ['https://identity.example.test', 'https://identity.example.test/'],
+  ]) {
+    assert.throws(() => validateConfig({
+      version: 1,
+      targets: { firstmate2: target },
+      remote: {
+        enabled: true,
+        bind_host: '127.0.0.1',
+        port: 3000,
+        resource: 'https://gateway.example.test/mcp',
+        authorization_servers: authorizationServers,
+        allowed_hosts: ['127.0.0.1'],
+        authorization: { principals: { operator: { targets: ['firstmate2'] } } },
+      },
+    }), ConfigError);
+  }
 });
 
 test('rejects malformed YAML before configuration validation', () => {

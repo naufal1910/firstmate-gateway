@@ -43,6 +43,7 @@ function withRemote(local: GatewayConfig): GatewayConfig {
     port: 0,
     allowPublicBind: false,
     resource: RESOURCE,
+    authorizationServers: ['https://identity.checkpoint-e.invalid/'],
     allowedHosts: ['127.0.0.1'],
     allowedOrigins: [],
     principals: { [PRINCIPAL]: { targets: [TARGET] } },

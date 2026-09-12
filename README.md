@@ -102,6 +102,8 @@ remote:
   bind_host: 127.0.0.1
   port: 3100
   resource: https://gateway.example.com/mcp
+  authorization_servers:
+    - https://identity.example.com/tenant
   allowed_hosts: [gateway.example.com]
   allowed_origins: []
   authorization:
@@ -117,7 +119,7 @@ import { startRemoteMcp } from 'firstmate-gateway';
 await startRemoteMcp({ tokenVerifier: verifier });
 ```
 
-The resource identifier must be HTTPS even when an internal listener sits behind provider-neutral TLS termination. Non-loopback binding additionally requires `allow_public_bind: true`; no public bind is inferred. Host and Origin allowlists, 128 KiB request bodies, header/body timeouts, and bounded connection lifecycles are enforced before MCP dispatch. Access tokens must carry an exact matching resource and expiration. By default the verified OAuth `clientId` selects a configured principal policy; an OIDC-aware host may inject a `principalResolver` without changing Gateway Core.
+The resource identifier and every provider-neutral authorization-server issuer must be HTTPS even when an internal listener sits behind provider-neutral TLS termination. The Gateway publishes unauthenticated RFC 9728 Protected Resource Metadata at the path-aware `/.well-known/oauth-protected-resource/mcp` endpoint and points to it from 401 Bearer challenges. Metadata advertises only the configured resource, issuer URLs, and three supported scopes—never credentials. Non-loopback binding additionally requires `allow_public_bind: true`; no public bind is inferred. Host and Origin allowlists, 128 KiB request bodies, header/body timeouts, and bounded connection lifecycles are enforced before MCP dispatch. Access tokens must carry an exact matching resource and expiration. By default the verified OAuth `clientId` selects a configured principal policy; an OIDC-aware host may inject a `principalResolver` without changing Gateway Core.
 
 Authentication runs before authorization. `firstmate_list` and `firstmate_status` require `firstmate-gateway:read`; `firstmate_send` requires `firstmate-gateway:send`; raw `firstmate_read` requires `firstmate-gateway:diagnostics`; semantic read requires read and retains `SEMANTIC_OUTPUT_UNAVAILABLE`. Every target-specific operation is checked against the principal allowlist, and list results are filtered to that allowlist. Authentication failures are safe HTTP 401 responses; authenticated policy failures are `FORBIDDEN` MCP tool errors without Gateway invocation.
 
@@ -156,7 +158,7 @@ ChatGPT-specific integration, public deployment, provider-specific OAuth setup, 
 
 ## MCP SDK compatibility evidence
 
-The MCP adapter uses the official v2 package split pinned to **`@modelcontextprotocol/server@2.0.0`**, **`@modelcontextprotocol/client@2.0.0`**, and **`@modelcontextprotocol/node@2.0.0`**. Immediately before implementation, `npm view ... version dist-tags --json` reported `2.0.0` with `latest: 2.0.0` for all three. The published v2 declarations confirm `McpServer`/`registerTool` and per-request `createMcpHandler(...)` from the server package, `toNodeHandler(...)` from the Node adapter, official `OAuthTokenVerifier`/`verifyBearerToken(...)` resource-server seams, `serveStdio(...)` for unchanged local stdio, and `Client` with `StreamableHTTPClientTransport` for real-client tests. The lockfile records exact package integrities.
+The MCP adapter uses the official v2 package split pinned to **`@modelcontextprotocol/server@2.0.0`**, **`@modelcontextprotocol/client@2.0.0`**, and **`@modelcontextprotocol/node@2.0.0`**. Immediately before implementation, `npm view ... version dist-tags --json` reported `2.0.0` with `latest: 2.0.0` for all three. The published v2 declarations confirm `McpServer`/`registerTool` and per-request `createMcpHandler(...)` from the server package, `toNodeHandler(...)` from the Node adapter, official `OAuthTokenVerifier`/`verifyBearerToken(...)` and `getOAuthProtectedResourceMetadataUrl(...)` resource-server seams, `serveStdio(...)` for unchanged local stdio, and `Client` with `StreamableHTTPClientTransport` for real-client tests. The lockfile records exact package integrities.
 
 ## Safety Principles
 

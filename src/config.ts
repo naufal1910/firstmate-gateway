@@ -45,6 +45,24 @@ function isSecureResource(value: string): boolean {
   }
 }
 
+function isSecureIssuer(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.username === '' && url.password === '' &&
+      url.hash === '' && url.search === '';
+  } catch {
+    return false;
+  }
+}
+
+function hasUniqueIssuerUrls(issuers: readonly string[]): boolean {
+  try {
+    return new Set(issuers.map((issuer) => new URL(issuer).href)).size === issuers.length;
+  } catch {
+    return false;
+  }
+}
+
 const nonEmptyString = (name: string) =>
   z
     .string()
@@ -86,6 +104,13 @@ const enabledRemoteSchema = z.object({
   resource: z.string().refine(
     isSecureResource,
     `resource must be an HTTPS URL ending at ${REMOTE_MCP_PATH} without credentials, query, or fragment`,
+  ),
+  authorization_servers: z.array(z.string().refine(
+    isSecureIssuer,
+    'authorization server issuers must be HTTPS URLs without credentials, query, or fragment',
+  )).min(1).max(16).refine(
+    hasUniqueIssuerUrls,
+    'authorization server issuers must not contain duplicates',
   ),
   allowed_hosts: z.array(z.string().refine(
     isAllowedHeaderHostname,
@@ -168,6 +193,7 @@ export interface EnabledRemoteConfig {
   readonly port: number;
   readonly allowPublicBind: boolean;
   readonly resource: string;
+  readonly authorizationServers: readonly string[];
   readonly allowedHosts: readonly string[];
   readonly allowedOrigins: readonly string[];
   readonly principals: Readonly<Record<string, RemotePrincipalPolicy>>;
@@ -228,7 +254,10 @@ export function validateConfig(input: unknown): GatewayConfig {
       bindHost: result.data.remote.bind_host,
       port: result.data.remote.port,
       allowPublicBind: result.data.remote.allow_public_bind,
-      resource: result.data.remote.resource,
+      resource: new URL(result.data.remote.resource).href,
+      authorizationServers: Object.freeze(
+        result.data.remote.authorization_servers.map((issuer) => new URL(issuer).href),
+      ),
       allowedHosts: Object.freeze([...result.data.remote.allowed_hosts]),
       allowedOrigins: Object.freeze([...result.data.remote.allowed_origins]),
       principals: Object.freeze(Object.fromEntries(

@@ -10,7 +10,9 @@ import {
 } from '@modelcontextprotocol/node';
 import {
   createMcpHandler,
+  getOAuthProtectedResourceMetadataUrl,
   type AuthInfo,
+  type OAuthProtectedResourceMetadata,
 } from '@modelcontextprotocol/server';
 
 import {
@@ -24,6 +26,7 @@ import {
 import { Gateway } from './gateway.js';
 import { createMcpServer, type GatewayForMcp } from './mcp.js';
 import {
+  REMOTE_SCOPES,
   authenticateBearer,
   authorizeGateway,
   type PrincipalResolver,
@@ -95,6 +98,7 @@ function toRawConfig(config: GatewayConfig): unknown {
       port: config.remote.port,
       allow_public_bind: config.remote.allowPublicBind,
       resource: config.remote.resource,
+      authorization_servers: [...config.remote.authorizationServers],
       allowed_hosts: [...config.remote.allowedHosts],
       allowed_origins: [...config.remote.allowedOrigins],
       authorization: {
@@ -150,13 +154,57 @@ function protocolBoundaryError(
   }, {}, closeConnection);
 }
 
-function unauthenticated(response: ServerResponse): void {
+function unauthenticated(response: ServerResponse, resourceMetadataUrl: string): void {
   sendJson(response, 401, {
     error: 'invalid_token',
     error_description: 'UNAUTHENTICATED',
   }, {
-    'WWW-Authenticate': 'Bearer error="invalid_token", error_description="Authentication required"',
+    'WWW-Authenticate': `Bearer error="invalid_token", error_description="Authentication required", resource_metadata="${resourceMetadataUrl}"`,
   }, true);
+}
+
+function protectedResourceMetadata(remote: EnabledRemoteConfig): OAuthProtectedResourceMetadata {
+  return Object.freeze({
+    resource: remote.resource,
+    authorization_servers: [...remote.authorizationServers],
+    scopes_supported: Object.values(REMOTE_SCOPES),
+    resource_name: 'FirstMate Gateway',
+  });
+}
+
+function sendProtectedResourceMetadata(
+  request: IncomingMessage,
+  response: ServerResponse,
+  metadata: OAuthProtectedResourceMetadata,
+): void {
+  const corsHeaders = { 'Access-Control-Allow-Origin': '*' };
+  if (request.method === 'OPTIONS') {
+    response.writeHead(204, {
+      ...corsHeaders,
+      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+    });
+    response.end();
+    return;
+  }
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    sendJson(response, 405, { error: 'method_not_allowed' }, {
+      ...corsHeaders,
+      Allow: 'GET, HEAD, OPTIONS',
+    });
+    return;
+  }
+  if (request.method === 'HEAD') {
+    const text = JSON.stringify(metadata);
+    response.writeHead(200, {
+      ...corsHeaders,
+      'Cache-Control': 'no-store',
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Length': String(Buffer.byteLength(text)),
+    });
+    response.end();
+    return;
+  }
+  sendJson(response, 200, metadata, corsHeaders);
 }
 
 function singleHeader(request: IncomingMessage, name: string): string | undefined {
@@ -257,13 +305,13 @@ async function authenticateWithinDeadline(
   }
 }
 
-function isEndpoint(request: IncomingMessage): boolean {
-  if (request.url === undefined) return false;
+function requestPath(request: IncomingMessage): string | undefined {
+  if (request.url === undefined) return undefined;
   try {
     const url = new URL(request.url, 'http://firstmate-gateway.invalid');
-    return url.pathname === REMOTE_MCP_PATH && url.search === '';
+    return url.search === '' ? url.pathname : undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
@@ -290,6 +338,9 @@ function createRemoteHttpServer(
   });
   const validateHost = hostHeaderValidation([...config.remote.allowedHosts]);
   const validateOrigin = originValidation([...config.remote.allowedOrigins]);
+  const resourceMetadataUrl = getOAuthProtectedResourceMetadataUrl(new URL(config.remote.resource));
+  const metadataPath = new URL(resourceMetadataUrl).pathname;
+  const metadata = protectedResourceMetadata(config.remote);
 
   const server = createServer({
     maxHeaderSize: REMOTE_MAX_HEADER_BYTES,
@@ -297,22 +348,29 @@ function createRemoteHttpServer(
     rejectNonStandardBodyWrites: true,
   }, async (request, response) => {
     try {
-      if (!isEndpoint(request)) {
+      if (!validateHost(request, response) || !validateOrigin(request, response)) return;
+      const path = requestPath(request);
+      const length = contentLength(request);
+      if (length !== undefined && length > REMOTE_MAX_REQUEST_BODY_BYTES) {
+        throw new RequestBoundaryError(413, 'MCP request is too large', true);
+      }
+      const hasBodyFraming = (length !== undefined && length > 0) ||
+        request.headers['transfer-encoding'] !== undefined;
+      if (path === metadataPath) {
+        if (hasBodyFraming) throw new RequestBoundaryError(400, 'Malformed MCP request', true);
+        sendProtectedResourceMetadata(request, response, metadata);
+        return;
+      }
+      if (path !== REMOTE_MCP_PATH) {
         sendJson(response, 404, { error: 'not_found' });
         return;
       }
-      if (!validateHost(request, response) || !validateOrigin(request, response)) return;
       if (request.method !== 'POST' && request.method !== 'GET' && request.method !== 'DELETE') {
         sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, POST, DELETE' });
         return;
       }
 
-      const length = contentLength(request);
-      if (length !== undefined && length > REMOTE_MAX_REQUEST_BODY_BYTES) {
-        throw new RequestBoundaryError(413, 'MCP request is too large', true);
-      }
-      if (request.method !== 'POST' &&
-          ((length !== undefined && length > 0) || request.headers['transfer-encoding'] !== undefined)) {
+      if (request.method !== 'POST' && hasBodyFraming) {
         throw new RequestBoundaryError(400, 'Malformed MCP request', true);
       }
 
@@ -326,7 +384,7 @@ function createRemoteHttpServer(
           principalResolver,
         );
       } catch {
-        unauthenticated(response);
+        unauthenticated(response, resourceMetadataUrl);
         return;
       } finally {
         delete request.headers.authorization;

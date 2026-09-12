@@ -70,6 +70,10 @@ function remoteConfig(): GatewayConfig {
       bind_host: '127.0.0.1',
       port: 0,
       resource: RESOURCE,
+      authorization_servers: [
+        'https://identity.example.test/tenant',
+        'https://backup-identity.example.test',
+      ],
       allowed_hosts: ['127.0.0.1'],
       authorization: {
         principals: {
@@ -286,6 +290,68 @@ test('remote mode defaults disabled and incomplete enabled mode refuses startup 
 
   await assert.rejects(startRemoteMcp({ config: remoteConfig() }), (error: unknown) =>
     error instanceof ConfigError && error.message.includes('access-token verifier'));
+});
+
+test('RFC 9728 metadata is public, path-aware, points to configured issuers, and does not invoke Gateway', async () => {
+  const fixture = await startFixture();
+  try {
+    const metadataUrl = new URL('/.well-known/oauth-protected-resource/mcp', fixture.url);
+    const metadataResponse = await fetch(metadataUrl);
+    assert.equal(metadataResponse.status, 200);
+    assert.equal(metadataResponse.headers.get('access-control-allow-origin'), '*');
+    const metadataText = await metadataResponse.text();
+    const metadata = JSON.parse(metadataText) as Record<string, unknown>;
+    assert.deepEqual(metadata, {
+      resource: RESOURCE,
+      authorization_servers: [
+        'https://identity.example.test/tenant',
+        'https://backup-identity.example.test/',
+      ],
+      scopes_supported: [
+        'firstmate-gateway:read',
+        'firstmate-gateway:send',
+        'firstmate-gateway:diagnostics',
+      ],
+      resource_name: 'FirstMate Gateway',
+    });
+    assertNoSensitiveLeak(metadataText);
+    assert.deepEqual(fixture.counters, { list: 0, status: 0, send: 0, read: 0 });
+
+    const challenge = await fetch(fixture.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+    });
+    assert.equal(challenge.status, 401);
+    assert.equal(
+      challenge.headers.get('www-authenticate'),
+      'Bearer error="invalid_token", error_description="Authentication required", resource_metadata="https://gateway.example.test/.well-known/oauth-protected-resource/mcp"',
+    );
+    const challengeText = await challenge.text();
+    assert.match(challengeText, /UNAUTHENTICATED/);
+    assertNoSensitiveLeak(challengeText);
+    assertNoSensitiveLeak(challenge.headers.get('www-authenticate') ?? '');
+    assert.deepEqual(fixture.counters, { list: 0, status: 0, send: 0, read: 0 });
+  } finally {
+    await fixture.server.close();
+  }
+});
+
+test('invalid protected-resource issuer configuration fails before a listener or Gateway action', async () => {
+  const { gateway, counters } = fakeGateway();
+  const base = remoteConfig();
+  const invalid = {
+    ...base,
+    remote: {
+      ...base.remote,
+      authorizationServers: ['http://identity.example.test'],
+    },
+  } as unknown as GatewayConfig;
+  await assert.rejects(
+    startRemoteMcp({ config: invalid, gateway, tokenVerifier: new FixtureTokenVerifier() }),
+    (error: unknown) => error instanceof ConfigError && error.code === 'CONFIG_INVALID',
+  );
+  assert.deepEqual(counters, { list: 0, status: 0, send: 0, read: 0 });
 });
 
 test('real Streamable HTTP client rejects missing, malformed, invalid, expired, rejected, and wrong-resource credentials before Gateway action', async () => {
