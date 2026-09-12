@@ -296,7 +296,10 @@ test('RFC 9728 metadata is public, path-aware, points to configured issuers, and
   const fixture = await startFixture();
   try {
     const metadataUrl = new URL('/.well-known/oauth-protected-resource/mcp', fixture.url);
-    const metadataResponse = await fetch(metadataUrl);
+    const nonAllowlistedOrigin = 'https://web-client.example.test';
+    const metadataResponse = await fetch(metadataUrl, {
+      headers: { Origin: nonAllowlistedOrigin },
+    });
     assert.equal(metadataResponse.status, 200);
     assert.equal(metadataResponse.headers.get('access-control-allow-origin'), '*');
     const metadataText = await metadataResponse.text();
@@ -315,6 +318,23 @@ test('RFC 9728 metadata is public, path-aware, points to configured issuers, and
       resource_name: 'FirstMate Gateway',
     });
     assertNoSensitiveLeak(metadataText);
+    assert.deepEqual(fixture.counters, { list: 0, status: 0, send: 0, read: 0 });
+
+    const requestedHeaders = 'Authorization, MCP-Protocol-Version';
+    const metadataPreflight = await fetch(metadataUrl, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: nonAllowlistedOrigin,
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': requestedHeaders,
+      },
+    });
+    assert.equal(metadataPreflight.status, 204);
+    assert.equal(metadataPreflight.headers.get('access-control-allow-origin'), '*');
+    assert.equal(metadataPreflight.headers.get('access-control-allow-methods'), 'GET, HEAD, OPTIONS');
+    assert.equal(metadataPreflight.headers.get('access-control-allow-headers'), requestedHeaders);
+    assert.equal(metadataPreflight.headers.get('vary'), 'Access-Control-Request-Headers');
+    assert.equal(await metadataPreflight.text(), '');
     assert.deepEqual(fixture.counters, { list: 0, status: 0, send: 0, read: 0 });
 
     const challenge = await fetch(fixture.url, {

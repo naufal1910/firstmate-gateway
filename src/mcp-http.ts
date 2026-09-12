@@ -179,9 +179,14 @@ function sendProtectedResourceMetadata(
 ): void {
   const corsHeaders = { 'Access-Control-Allow-Origin': '*' };
   if (request.method === 'OPTIONS') {
+    const requestedHeaders = singleHeader(request, 'access-control-request-headers');
     response.writeHead(204, {
       ...corsHeaders,
       'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+      ...(requestedHeaders === undefined ? {} : {
+        'Access-Control-Allow-Headers': requestedHeaders,
+        Vary: 'Access-Control-Request-Headers',
+      }),
     });
     response.end();
     return;
@@ -348,7 +353,7 @@ function createRemoteHttpServer(
     rejectNonStandardBodyWrites: true,
   }, async (request, response) => {
     try {
-      if (!validateHost(request, response) || !validateOrigin(request, response)) return;
+      if (!validateHost(request, response)) return;
       const path = requestPath(request);
       const length = contentLength(request);
       if (length !== undefined && length > REMOTE_MAX_REQUEST_BODY_BYTES) {
@@ -365,6 +370,7 @@ function createRemoteHttpServer(
         sendJson(response, 404, { error: 'not_found' });
         return;
       }
+      if (!validateOrigin(request, response)) return;
       if (request.method !== 'POST' && request.method !== 'GET' && request.method !== 'DELETE') {
         sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, POST, DELETE' });
         return;
