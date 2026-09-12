@@ -1,4 +1,4 @@
-export const VERSION = '0.4.0';
+export const VERSION = '0.5.0';
 
 export {
   ConfigError,
@@ -9,7 +9,12 @@ export {
   loadConfigFileSync,
   parseConfig,
   validateConfig,
+  REMOTE_MCP_PATH,
+  type DisabledRemoteConfig,
+  type EnabledRemoteConfig,
   type GatewayConfig,
+  type RemoteConfig,
+  type RemotePrincipalPolicy,
   type TargetConfig,
 } from './config.js';
 
@@ -110,3 +115,28 @@ export {
 } from './mcp.js';
 
 export { runStdioMcp } from './mcp-stdio.js';
+
+export {
+  REMOTE_HEADERS_TIMEOUT_MS,
+  REMOTE_KEEP_ALIVE_TIMEOUT_MS,
+  REMOTE_MAX_HEADER_BYTES,
+  REMOTE_MAX_REQUEST_BODY_BYTES,
+  REMOTE_REQUEST_TIMEOUT_MS,
+  startRemoteMcp,
+  type DisabledRemoteMcpServer,
+  type ListeningRemoteMcpServer,
+  type RemoteDiagnosticEvent,
+  type RemoteMcpServer,
+  type StartRemoteMcpOptions,
+} from './mcp-http.js';
+
+export {
+  REMOTE_SCOPES,
+  RemoteAuthenticationError,
+  authenticateBearer,
+  authorizeGateway,
+  type AuthenticatedPrincipal,
+  type PrincipalResolver,
+  type RemoteScope,
+  type RemoteTokenVerifier,
+} from './remote-auth.js';
