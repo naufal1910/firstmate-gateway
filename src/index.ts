@@ -1,4 +1,4 @@
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 
 export {
   ConfigError,
@@ -28,8 +28,24 @@ export {
   createRequestId,
   type DoctorCheck,
   type DoctorReport,
+  DEFAULT_READ_COUNT,
+  DEFAULT_READ_LINES,
+  DEFAULT_READ_SOURCE,
+  MAX_PROMPT_BYTES,
+  MAX_READ_COUNT,
+  MAX_READ_LINES,
+  MIN_READ_COUNT,
+  MIN_READ_LINES,
+  isReadSource,
   type GatewayDependencies,
   type GatewayInvocationOptions,
+  type ReadInput,
+  type ReadMode,
+  type ReadResult,
+  type RawReadResult,
+  type SemanticReadResult,
+  type SendPromptInput,
+  type SendPromptResult,
   type TargetStatus,
   type TargetSummary,
 } from './gateway.js';
@@ -62,6 +78,7 @@ export {
   HerdrProtocolError,
   HerdrSocketClient,
   HerdrTransportError,
+  type HerdrAgentClient,
   createUnixSocketExchange,
   type AgentReadOptions,
   type AgentStatus,
@@ -76,3 +93,10 @@ export {
   type ReadSource,
   type RequiredHerdrMethod,
 } from './herdr/protocol.js';
+
+export {
+  selectSemanticReader,
+  type SemanticReadInput,
+  type SemanticReader,
+  type SemanticReaderProvider,
+} from './semantic.js';

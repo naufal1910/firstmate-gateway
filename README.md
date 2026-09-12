@@ -2,7 +2,7 @@
 
 A safe gateway for connecting ChatGPT and other clients to FirstMate instances running under Herdr.
 
-> **Status:** Phase 2 Tasks 4–6 and Checkpoint B are implemented: read-only target listing, dynamic status resolution, and diagnostics are available. Prompt delivery, raw-read product flow, MCP, HTTP, and authentication remain intentionally disabled.
+> **Status:** Phase 3 Tasks 7–9 and Checkpoint C are implemented: safe prompt delivery, dynamic raw reads, and an explicit semantic-reader capability boundary are available. MCP, HTTP, and authentication remain intentionally disabled.
 
 ## What It Is
 
@@ -73,20 +73,25 @@ targets:
     agent: pi
 ```
 
-The current milestone exposes the reusable YAML validator, Herdr session locator, exact-one target resolver, Gateway Core read-only operations, and the structured Herdr socket compatibility client as TypeScript APIs. It does not expose prompt delivery, raw-read product flow, MCP, HTTP, authentication, or authorization commands; those belong to later authorized tasks.
+The current milestone exposes the reusable YAML validator, Herdr session locator, exact-one target resolver, Gateway Core status/send/read operations, and the structured Herdr socket client as TypeScript APIs. Prompt delivery is bounded and non-idempotent; raw reads use explicit bounded sources. Semantic reads are a separate provider boundary and currently return `SEMANTIC_OUTPUT_UNAVAILABLE` because no Pi semantic source contract has been validated. MCP, HTTP, authentication, and authorization commands remain intentionally disabled.
 
-Read-only CLI usage:
+CLI usage:
 
 ```sh
 firstmate-gateway targets
 firstmate-gateway status firstmate2
+firstmate-gateway send firstmate2 "Reply exactly with: ..."
+printf '%s' 'prompt from stdin' | firstmate-gateway send firstmate2
+firstmate-gateway send firstmate2 --file ./prompt.txt
+firstmate-gateway read firstmate2
+firstmate-gateway read firstmate2 --source recent --count 40 --json
+firstmate-gateway read firstmate2 --semantic --json
 firstmate-gateway doctor
-firstmate-gateway targets --json
-firstmate-gateway status firstmate2 --json
-firstmate-gateway doctor --json
 ```
 
-`targets` lists only logical aliases, expected agent kinds, and Herdr session names. `status` discovers the current runtime agent on every invocation. `doctor` checks configuration, Herdr session discovery, the discovered socket, protocol compatibility, and exact-one target resolution. Runtime pane IDs are never configuration identity.
+`send` accepts exactly one source (positional message, `--file`, or stdin), preserves prompt data literally, rejects empty/oversized input (64 KiB UTF-8 maximum), and reports accepted delivery without waiting for completion. A timeout or other uncertain delivery is never retried. `read` defaults to `recent-unwrapped` and 120 lines; supported sources are `visible`, `recent`, `recent-unwrapped`, and `detection`. Raw reads never silently fall back to another source. Every operation dynamically resolves the current exact-one target; runtime pane IDs are never configuration identity or CLI input.
+
+Milestone runtime finding: installed Herdr 0.8.2 spells the `recent-unwrapped` source as `recent_unwrapped` on the structured wire. The Herdr adapter translates that wire spelling while keeping the approved public source name and rejects any different returned source rather than falling back.
 
 ## Project Documentation
 
@@ -104,14 +109,16 @@ AI agents and implementers should also read [`AGENTS.md`](./AGENTS.md) before ma
 
 ## Current Implementation Milestone
 
-The implemented milestone is Phase 2:
+The implemented milestone is Phase 3:
 
 - **Tasks 1–3 / Checkpoint A:** package foundation, Herdr protocol compatibility, and validated YAML configuration;
-- **Task 4:** named Herdr session discovery with argv-style, non-shell execution;
-- **Task 5:** dynamic exact-one target resolution using agent kind and canonical foreground CWD/CWD evidence;
-- **Task 6 / Checkpoint B:** read-only `targets`, `status`, and `doctor` CLI commands with stable JSON output.
+- **Tasks 4–6 / Checkpoint B:** named session discovery, dynamic exact-one target resolution, and read-only targets/status/doctor CLI commands;
+- **Task 7:** bounded, structured `agent.prompt` delivery with no automatic retry after uncertainty;
+- **Task 8:** bounded raw `agent.read` with explicit source validation and dynamic re-resolution;
+- **Task 9:** separate semantic-reader provider boundary with explicit unavailable behavior;
+- **Checkpoint C:** real local Gateway CLI prompt/read round trip.
 
-Do not continue into Task 7 or later without explicit approval.
+Task 10+ MCP, HTTP, authentication, authorization, and release work are not included in this milestone.
 
 ## Safety Principles
 

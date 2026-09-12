@@ -12,6 +12,16 @@ export const EXPECTED_HERDR_PROTOCOL = MINIMUM_HERDR_PROTOCOL;
 
 const READ_SOURCES = ['visible', 'recent', 'recent-unwrapped', 'detection'] as const;
 const READ_FORMATS = ['text', 'ansi'] as const;
+
+/** Public Gateway source names mapped to the Herdr wire enum where required. */
+function toWireReadSource(source: ReadSource): string {
+  return source === 'recent-unwrapped' ? 'recent_unwrapped' : source;
+}
+
+function fromWireReadSource(source: string): ReadSource | undefined {
+  if (source === 'recent_unwrapped') return 'recent-unwrapped';
+  return (READ_SOURCES as readonly string[]).includes(source) ? (source as ReadSource) : undefined;
+}
 const AGENT_STATUSES = ['idle', 'working', 'blocked', 'done', 'unknown'] as const;
 const EXPECTED_PROBE_REJECTIONS = new Set(['agent_not_found', 'target_not_found']);
 const MISSING_METHOD_CODES = new Set([
@@ -81,6 +91,15 @@ export interface HerdrCompatibilityReport {
 }
 
 export type HerdrExchange = (request: HerdrRequest) => Promise<unknown>;
+
+/** The structured agent operations used by Gateway Core and test doubles. */
+export interface HerdrAgentClient {
+  ping(): Promise<HerdrPing>;
+  listAgents(): Promise<readonly HerdrAgent[]>;
+  prompt(target: string, text: string): Promise<HerdrAgent>;
+  read(target: string, options: AgentReadOptions): Promise<HerdrRead>;
+  probeCompatibility(): Promise<HerdrCompatibilityReport>;
+}
 
 export interface HerdrSocketClientOptions {
   readonly socketPath?: string;
@@ -264,8 +283,9 @@ function parseReadResult(value: unknown): HerdrRead {
     throw new HerdrMalformedResponseError('agent.read result has unexpected type');
   }
   const read = parseObjectResponse(result.read, 'agent.read read');
-  const source = requiredString(read, 'source', 'agent.read read');
-  if (!(READ_SOURCES as readonly string[]).includes(source)) {
+  const wireSource = requiredString(read, 'source', 'agent.read read');
+  const source = fromWireReadSource(wireSource);
+  if (source === undefined) {
     throw new HerdrMalformedResponseError('agent.read read has unsupported source');
   }
   const format = requiredString(read, 'format', 'agent.read read');
@@ -277,7 +297,7 @@ function parseReadResult(value: unknown): HerdrRead {
     paneId: requiredString(read, 'pane_id', 'agent.read read'),
     workspaceId: requiredString(read, 'workspace_id', 'agent.read read'),
     tabId: requiredString(read, 'tab_id', 'agent.read read'),
-    source: source as ReadSource,
+    source,
     format: format as ReadFormat,
     text: requiredString(read, 'text', 'agent.read read'),
     revision: requiredNonNegativeInteger(read, 'revision', 'agent.read read'),
@@ -429,7 +449,7 @@ export function createUnixSocketExchange(socketPath: string, timeoutMs = 5_000):
     });
 }
 
-export class HerdrSocketClient {
+export class HerdrSocketClient implements HerdrAgentClient {
   private readonly exchange: HerdrExchange;
   private readonly minimumProtocol: number;
 
@@ -478,7 +498,7 @@ export class HerdrSocketClient {
     validateReadOptions(options);
     const result = await this.call('agent.read', {
       target,
-      source: options.source,
+      source: toWireReadSource(options.source),
       ...(options.format === undefined ? {} : { format: options.format }),
       ...(options.lines === undefined ? {} : { lines: options.lines }),
       ...(options.stripAnsi === undefined ? {} : { strip_ansi: options.stripAnsi }),

@@ -85,6 +85,37 @@ test('parses compatible responses and tolerates unknown fields', async () => {
   assert.equal(read.text, 'safe probe output');
 });
 
+test('maps the public recent-unwrapped source to Herdr wire naming', async () => {
+  let readRequest: HerdrRequest | undefined;
+  const client = new HerdrSocketClient({
+    exchange: async (request) => {
+      readRequest = request;
+      return {
+        id: request.id,
+        result: {
+          type: 'pane_read',
+          read: {
+            pane_id: 'w1:p1',
+            workspace_id: 'w1',
+            tab_id: 'w1:t1',
+            source: 'recent_unwrapped',
+            format: 'text',
+            text: 'raw output',
+            revision: 3,
+            truncated: false,
+          },
+        },
+      };
+    },
+  });
+
+  const result = await client.read('w1:p1', { source: 'recent-unwrapped', lines: 120 });
+  assert.equal(readRequest?.method, 'agent.read');
+  assert.equal(readRequest?.params.source, 'recent_unwrapped');
+  assert.equal(result.source, 'recent-unwrapped');
+  assert.equal(result.text, 'raw output');
+});
+
 test('reports a Herdr protocol error', async () => {
   const client = new HerdrSocketClient({
     exchange: async (request) => ({
