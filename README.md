@@ -2,7 +2,7 @@
 
 A safe gateway for connecting ChatGPT and other clients to FirstMate instances running under Herdr.
 
-> **Status:** Phase 3 Tasks 7–9 and Checkpoint C are implemented: safe prompt delivery, dynamic raw reads, and an explicit semantic-reader capability boundary are available. MCP, HTTP, and authentication remain intentionally disabled.
+> **Status:** Phase 4 Tasks 10–11 and Checkpoint D are implemented: four client-neutral MCP tools are available over local stdio. HTTP and authentication remain intentionally disabled.
 
 ## What It Is
 
@@ -87,7 +87,10 @@ firstmate-gateway read firstmate2
 firstmate-gateway read firstmate2 --source recent --count 40 --json
 firstmate-gateway read firstmate2 --semantic --json
 firstmate-gateway doctor
+firstmate-gateway-mcp
 ```
+
+`firstmate-gateway-mcp` is the minimal local MCP stdio entry point. Its stdout is reserved exclusively for MCP protocol traffic; diagnostics go to stderr. It does not start a listener or manage FirstMate/Herdr lifecycle state. It exposes exactly `firstmate_list`, `firstmate_status`, `firstmate_send`, and `firstmate_read`.
 
 `send` accepts exactly one source (positional message, `--file`, or stdin), preserves prompt data literally, rejects empty/oversized input (64 KiB UTF-8 maximum), and reports accepted delivery without waiting for completion. A timeout or other uncertain delivery is never retried. `read` defaults to `recent-unwrapped` and 120 lines; supported sources are `visible`, `recent`, `recent-unwrapped`, and `detection`. Raw reads never silently fall back to another source. Every operation dynamically resolves the current exact-one target; runtime pane IDs are never configuration identity or CLI input.
 
@@ -116,9 +119,14 @@ The implemented milestone is Phase 3:
 - **Task 7:** bounded, structured `agent.prompt` delivery with no automatic retry after uncertainty;
 - **Task 8:** bounded raw `agent.read` with explicit source validation and dynamic re-resolution;
 - **Task 9:** separate semantic-reader provider boundary with explicit unavailable behavior;
-- **Checkpoint C:** real local Gateway CLI prompt/read round trip.
+- **Checkpoint C:** real local Gateway CLI prompt/read round trip;
+- **Tasks 10–11 / Checkpoint D:** client-neutral MCP tools and local stdio transport.
 
-Task 10+ MCP, HTTP, authentication, authorization, and release work are not included in this milestone.
+Remote HTTP, authentication, authorization, and release work are not included in this milestone.
+
+## MCP SDK compatibility evidence
+
+The MCP adapter uses the official `@modelcontextprotocol/sdk` package pinned to **1.30.0**. On 2026-09-12, `npm view @modelcontextprotocol/sdk@latest version` reported `1.30.0`; the package README and v1 API declarations document `McpServer`, `registerTool`, `StdioServerTransport`, typed Zod schemas, tool annotations, and structured tool output. The lockfile records the resolved integrity for this exact version.
 
 ## Safety Principles
 
