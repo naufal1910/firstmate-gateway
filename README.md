@@ -2,7 +2,7 @@
 
 A safe gateway for connecting ChatGPT and other clients to FirstMate instances running under Herdr.
 
-> **Status:** the Tasks 1–3 foundation and Checkpoint A compatibility/configuration work are implemented; later product operations remain intentionally disabled.
+> **Status:** Phase 2 Tasks 4–6 and Checkpoint B are implemented: read-only target listing, dynamic status resolution, and diagnostics are available. Prompt delivery, raw-read product flow, MCP, HTTP, and authentication remain intentionally disabled.
 
 ## What It Is
 
@@ -73,7 +73,20 @@ targets:
     agent: pi
 ```
 
-The current milestone exposes the reusable YAML validator and the structured Herdr socket compatibility client as TypeScript APIs. It does not yet expose target resolution, status, prompt delivery, raw reads, MCP, HTTP, authentication, or authorization commands; those belong to later authorized tasks.
+The current milestone exposes the reusable YAML validator, Herdr session locator, exact-one target resolver, Gateway Core read-only operations, and the structured Herdr socket compatibility client as TypeScript APIs. It does not expose prompt delivery, raw-read product flow, MCP, HTTP, authentication, or authorization commands; those belong to later authorized tasks.
+
+Read-only CLI usage:
+
+```sh
+firstmate-gateway targets
+firstmate-gateway status firstmate2
+firstmate-gateway doctor
+firstmate-gateway targets --json
+firstmate-gateway status firstmate2 --json
+firstmate-gateway doctor --json
+```
+
+`targets` lists only logical aliases, expected agent kinds, and Herdr session names. `status` discovers the current runtime agent on every invocation. `doctor` checks configuration, Herdr session discovery, the discovered socket, protocol compatibility, and exact-one target resolution. Runtime pane IDs are never configuration identity.
 
 ## Project Documentation
 
@@ -91,14 +104,14 @@ AI agents and implementers should also read [`AGENTS.md`](./AGENTS.md) before ma
 
 ## Current Implementation Milestone
 
-Only the first milestone is currently authorized:
+The implemented milestone is Phase 2:
 
-- **Task 1:** scaffold the TypeScript package;
-- **Task 2:** prove the required Herdr structured socket protocol;
-- **Task 3:** implement validated local YAML configuration;
-- **Checkpoint A:** verify foundation quality and real Herdr compatibility.
+- **Tasks 1–3 / Checkpoint A:** package foundation, Herdr protocol compatibility, and validated YAML configuration;
+- **Task 4:** named Herdr session discovery with argv-style, non-shell execution;
+- **Task 5:** dynamic exact-one target resolution using agent kind and canonical foreground CWD/CWD evidence;
+- **Task 6 / Checkpoint B:** read-only `targets`, `status`, and `doctor` CLI commands with stable JSON output.
 
-Do not continue into later implementation phases without explicit approval.
+Do not continue into Task 7 or later without explicit approval.
 
 ## Safety Principles
 
