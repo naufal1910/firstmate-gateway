@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, ftruncateSync, mkdtempSync, openSync, rmSync, writeFileSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { validateConfig } from '../config.js';
-import { Gateway } from '../gateway.js';
+import { Gateway, MAX_PROMPT_BYTES } from '../gateway.js';
 import { main } from '../cli.js';
 import type { GatewayInvocationOptions, SendPromptInput, SendPromptResult } from '../gateway.js';
 
@@ -54,6 +54,34 @@ function sendGateway(onSend: (message: string) => void): Gateway {
       };
     },
   } as unknown as Gateway;
+}
+
+/** Readable that counts how many bytes were actually produced by the source. */
+class CountingReadable extends Readable {
+  public produced = 0;
+  readonly #chunkSize: number;
+  #remaining: number;
+
+  public constructor(totalBytes: number, chunkSize = 512) {
+    super({ highWaterMark: 1024 });
+    this.#remaining = totalBytes;
+    this.#chunkSize = chunkSize;
+  }
+
+  public override _read(size: number): void {
+    if (this.#remaining <= 0) {
+      this.push(null);
+      return;
+    }
+    const length = Math.min(this.#chunkSize, size, this.#remaining);
+    this.#remaining -= length;
+    this.produced += length;
+    this.push(Buffer.alloc(length, 0x78));
+  }
+}
+
+function errorCode(stdout: readonly string[]): string {
+  return (JSON.parse(stdout[0] as string) as { error: { code: string } }).error.code;
 }
 
 test('CLI preserves positional, file, and stdin prompt sources literally', { concurrency: false }, async () => {
@@ -150,4 +178,78 @@ test('CLI validates raw read counts before Herdr I/O', { concurrency: false }, a
   ));
   assert.equal(result.code, 2);
   assert.equal((JSON.parse(result.stdout[0] as string) as { error: { code: string } }).error.code, 'INVALID_ARGUMENT');
+});
+
+test('CLI accepts a stdin prompt exactly at the byte limit and rejects one byte over', { concurrency: false }, async () => {
+  const messages: string[] = [];
+  const atLimit = await capture(() => main(
+    ['send', 'firstmate2', '--json'],
+    { gateway: sendGateway((message) => messages.push(message)), stdin: new CountingReadable(MAX_PROMPT_BYTES) },
+  ));
+  assert.equal(atLimit.code, 0);
+  assert.equal(messages.length, 1);
+  assert.equal(Buffer.byteLength(messages[0] as string, 'utf8'), MAX_PROMPT_BYTES);
+
+  const overLimit = await capture(() => main(
+    ['send', 'firstmate2', '--json'],
+    { gateway: sendGateway(() => { throw new Error('must not send'); }), stdin: new CountingReadable(MAX_PROMPT_BYTES + 1) },
+  ));
+  assert.equal(overLimit.code, 1);
+  assert.equal(errorCode(overLimit.stdout), 'PROMPT_TOO_LARGE');
+});
+
+test('CLI rejects an oversized stdin prompt without draining the source', { concurrency: false }, async () => {
+  const total = 16 * 1024 * 1024;
+  const stdin = new CountingReadable(total, 512);
+  let called = false;
+  const result = await capture(() => main(
+    ['send', 'firstmate2', '--json'],
+    { gateway: sendGateway(() => { called = true; }), stdin },
+  ));
+  assert.equal(result.code, 1);
+  assert.equal(called, false);
+  assert.equal(errorCode(result.stdout), 'PROMPT_TOO_LARGE');
+  assert.ok(stdin.produced <= MAX_PROMPT_BYTES + 64 * 1024, `consumed ${stdin.produced} bytes`);
+  assert.ok(stdin.produced < total, `drained the whole source (${stdin.produced} bytes)`);
+});
+
+test('CLI explicit-source conflict detection consumes only enough stdin to see input', { concurrency: false }, async () => {
+  const total = 16 * 1024 * 1024;
+  const stdin = new CountingReadable(total, 512);
+  let called = false;
+  const result = await capture(() => main(
+    ['send', 'firstmate2', 'positional', '--json'],
+    { gateway: sendGateway(() => { called = true; }), stdin },
+  ));
+  assert.equal(result.code, 2);
+  assert.equal(called, false);
+  assert.equal(errorCode(result.stdout), 'INVALID_ARGUMENT');
+  assert.match(result.stdout[0] as string, /send accepts exactly one prompt source/);
+  assert.ok(stdin.produced <= 8 * 1024, `consumed ${stdin.produced} bytes`);
+  assert.ok(stdin.produced < total, `drained the whole source (${stdin.produced} bytes)`);
+});
+
+test('CLI rejects an oversized file without loading it entirely', { concurrency: false }, async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'firstmate-gateway-bounded-'));
+  const file = join(directory, 'huge.bin');
+  const handle = openSync(file, 'w');
+  try {
+    // A 3 GiB sparse file cannot be loaded by readFile() (> 2 GiB limit); a
+    // bounded reader must classify it as an oversized prompt instead.
+    ftruncateSync(handle, 3 * 1024 * 1024 * 1024);
+  } finally {
+    closeSync(handle);
+  }
+  let called = false;
+  try {
+    const result = await capture(() => main(
+      ['send', 'firstmate2', '--file', file, '--json'],
+      { gateway: sendGateway(() => { called = true; }), stdin: Readable.from([]) },
+    ));
+    assert.equal(result.code, 1);
+    assert.equal(called, false);
+    assert.equal(errorCode(result.stdout), 'PROMPT_TOO_LARGE');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFile } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -338,22 +338,52 @@ function chunkToBuffer(chunk: unknown): Buffer {
   return Buffer.from(String(chunk), 'utf8');
 }
 
-async function readBoundedStream(stream: NodeJS.ReadableStream): Promise<BoundedText> {
+const FILE_READ_CHUNK_BYTES = 64 * 1024;
+
+/**
+ * Reads at most `byteLimit` bytes from a stream, stopping as soon as the limit
+ * is reached so a long-lived or oversized source is never drained. The returned
+ * `bytes` count is capped at `byteLimit`, which is enough for callers to decide
+ * overflow by reading `byteLimit - 1` or `byteLimit` bytes.
+ */
+async function readBoundedStream(stream: NodeJS.ReadableStream, byteLimit: number): Promise<BoundedText> {
   const chunks: Buffer[] = [];
   let bytes = 0;
-  let retainedBytes = 0;
   for await (const chunk of stream as AsyncIterable<unknown>) {
     const buffer = chunkToBuffer(chunk);
-    bytes = Math.min(MAX_PROMPT_BYTES + 1, bytes + buffer.length);
-    if (retainedBytes < MAX_PROMPT_BYTES + 1) {
-      const accepted = MAX_PROMPT_BYTES + 1 - retainedBytes;
-      const retained = buffer.subarray(0, accepted);
-      chunks.push(retained);
-      retainedBytes += retained.byteLength;
+    if (buffer.length === 0) continue;
+    const accepted = Math.min(buffer.length, byteLimit - bytes);
+    if (accepted > 0) {
+      chunks.push(buffer.subarray(0, accepted));
+      bytes += accepted;
     }
+    if (bytes >= byteLimit) break;
   }
   const text = Buffer.concat(chunks).toString('utf8');
   return { text, bytes };
+}
+
+/**
+ * Reads at most `byteLimit` bytes from a file, allocating and issuing I/O only
+ * for the bounded prefix instead of loading the whole file first.
+ */
+async function readBoundedFile(path: string, byteLimit: number): Promise<BoundedText> {
+  const handle = await open(path, 'r');
+  try {
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    const scratch = Buffer.allocUnsafe(Math.min(FILE_READ_CHUNK_BYTES, byteLimit));
+    while (bytes < byteLimit) {
+      const wanted = Math.min(scratch.length, byteLimit - bytes);
+      const { bytesRead } = await handle.read(scratch, 0, wanted, bytes);
+      if (bytesRead === 0) break;
+      chunks.push(Buffer.from(scratch.subarray(0, bytesRead)));
+      bytes += bytesRead;
+    }
+    return { text: Buffer.concat(chunks).toString('utf8'), bytes };
+  } finally {
+    await handle.close();
+  }
 }
 
 function shouldInspectStdin(stream: NodeJS.ReadableStream): boolean {
@@ -370,17 +400,17 @@ function promptSizeError(bytes: number, requestId: string): GatewayError {
 async function resolvePrompt(parsed: ParsedArgs, stdin: NodeJS.ReadableStream, requestId: string): Promise<string> {
   const explicitSource = parsed.message !== undefined || parsed.fileSpecified;
   if (explicitSource && shouldInspectStdin(stdin)) {
-    const piped = await readBoundedStream(stdin);
+    // Only enough input to know whether stdin is a competing source; never drain it.
+    const piped = await readBoundedStream(stdin, 1);
     if (piped.bytes > 0) throw new GatewayError('INVALID_ARGUMENT', 'send accepts exactly one prompt source', undefined, { requestId });
   }
 
   if (parsed.message !== undefined) return parsed.message;
 
   if (parsed.fileSpecified) {
+    let source: BoundedText;
     try {
-      const source = await readFile(parsed.file as string);
-      if (source.byteLength > MAX_PROMPT_BYTES) throw promptSizeError(source.byteLength, requestId);
-      return source.toString('utf8');
+      source = await readBoundedFile(parsed.file as string, MAX_PROMPT_BYTES + 1);
     } catch (error) {
       if (error instanceof GatewayError) throw error;
       throw new GatewayError('INVALID_ARGUMENT', 'unable to read prompt file', undefined, {
@@ -388,9 +418,11 @@ async function resolvePrompt(parsed: ParsedArgs, stdin: NodeJS.ReadableStream, r
         cause: error instanceof Error ? error : undefined,
       });
     }
+    if (source.bytes > MAX_PROMPT_BYTES) throw promptSizeError(source.bytes, requestId);
+    return source.text;
   }
 
-  const stdinText = await readBoundedStream(stdin);
+  const stdinText = await readBoundedStream(stdin, MAX_PROMPT_BYTES + 1);
   if (stdinText.bytes > MAX_PROMPT_BYTES) throw promptSizeError(stdinText.bytes, requestId);
   return stdinText.text;
 }
