@@ -126,7 +126,7 @@ remote:
   resource: https://gateway.example.com/mcp
   # For Secure MCP Tunnel v0.0.14, keep the private /mcp resource above and
   # set the external token audience to the OpenAI-hosted tunnel path:
-  # external_resource: https://<tunnel-origin>/v1/mcp/tunnel_<32-lowercase-letters-or-digits>
+  # external_resource: https://<tunnel-origin>/v1/mcp/tunnel_<32-lowercase-hexadecimal-characters>
   authorization_servers:
     - https://identity.example.com/tenant
   allowed_hosts: [gateway.example.com]

@@ -18,6 +18,6 @@ targets:
 # HTTPS resource, authorization-server issuer, Host/Origin, authorization policy, and an injected OAuth/OIDC
 # access-token verifier; this example contains no token or credential. For OpenAI Secure MCP Tunnel v0.0.14,
 # keep resource bound to the private /mcp identity and add external_resource as the tunnel's
-# https://<tunnel-origin>/v1/mcp/tunnel_<32-lowercase-letters-or-digits> resource identity.
+# https://<tunnel-origin>/v1/mcp/tunnel_<32-lowercase-hexadecimal-characters> resource identity.
 remote:
   enabled: false

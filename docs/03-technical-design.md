@@ -458,7 +458,7 @@ that external identity separately; the Gateway keeps publishing metadata for the
 private `/mcp` resource and validates token resource claims against exactly the
 configured external identity. It must never accept either identity as a fallback.
 The external identity is restricted to an HTTPS tunnel URL with the exact
-`tunnel_<32 lowercase letters or digits>` path form.
+`tunnel_<32 lowercase hexadecimal characters>` path form.
 
 Suggested scopes:
 

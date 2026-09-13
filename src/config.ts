@@ -21,7 +21,7 @@ function isPolicyPrincipal(value: string): boolean {
 }
 
 export const REMOTE_MCP_PATH = '/mcp';
-const TUNNEL_MCP_RESOURCE_PATH = /^\/v1\/mcp\/tunnel_[a-z0-9]{32}$/;
+const TUNNEL_MCP_RESOURCE_PATH = /^\/v1\/mcp\/tunnel_[0-9a-f]{32}$/;
 
 function isLoopbackHost(host: string): boolean {
   return host === '127.0.0.1' || host === '::1';
@@ -118,7 +118,7 @@ const enabledRemoteSchema = z.object({
   ),
   external_resource: z.string().refine(
     isSecureTunnelResource,
-    'external_resource must be an HTTPS tunnel URL at /v1/mcp/<tunnel_id> without credentials, query, or fragment',
+    'external_resource must be an HTTPS tunnel URL at /v1/mcp/tunnel_<32 lowercase hexadecimal characters> without credentials, query, or fragment',
   ).optional(),
   authorization_servers: z.array(z.string().refine(
     isSecureIssuer,

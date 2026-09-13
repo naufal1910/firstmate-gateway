@@ -196,7 +196,7 @@ existing-tunnel attachment flow. For tunnel-client v0.0.14 the connector-facing
 resource has the exact form:
 
 ```text
-https://<tunnel-origin>/v1/mcp/tunnel_<32-lowercase-letters-or-digits>
+https://<tunnel-origin>/v1/mcp/tunnel_<32-lowercase-hexadecimal-characters>
 ```
 
 Set that exact HTTPS URL as `remote.external_resource`; keep `remote.resource` as the
@@ -206,11 +206,15 @@ tokens against exactly the configured external resource rather than accepting ei
 identity.
 
 With a tunnel ID supplied through the documented tunnel-client profile/attachment
-workflow, point the connector at the private Gateway MCP URL, for example:
+workflow, point the connector at the private Gateway MCP URL. For an existing
+tunnel, tunnel-client v0.0.14 requires a runtime alias and runtime API key
+reference:
 
 ```sh
 tunnel-client runtimes connect \
-  --tunnel-id tunnel_<32-lowercase-letters-or-digits> \
+  --alias firstmate-gateway \
+  --tunnel-id tunnel_<32-lowercase-hexadecimal-characters> \
+  --runtime-api-key env:CONTROL_PLANE_API_KEY \
   --mcp-server-url http://127.0.0.1:3100/mcp
 ```
 

@@ -179,6 +179,7 @@ test('remote startup configuration fails closed when security policy is incomple
   for (const externalResource of [
     'https://gateway.example.test/mcp',
     'https://mcp.openai.example/v1/mcp/tunnel_INVALID',
+    'https://mcp.openai.example/v1/mcp/tunnel_0123456789abcdef0123456789abcdeg',
     'https://mcp.openai.example/v1/mcp/tunnel_0123456789abcdef0123456789abcdef?x=1',
     'http://mcp.openai.example/v1/mcp/tunnel_0123456789abcdef0123456789abcdef',
   ]) {
