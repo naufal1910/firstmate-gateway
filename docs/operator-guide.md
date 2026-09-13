@@ -314,9 +314,19 @@ path, and do not use a tunnel ID as a FirstMate target identity.
 In the ChatGPT workspace's supported app/connector settings, create or configure
 the connection with `Connection: Tunnel`. Select the intended tunnel from the
 available-tunnels list, or paste the `tunnel_id` when the tunnel is not listed.
-Save the connector and complete the configured authorization flow. Do not paste
-the private Gateway URL or the underlying `/v1/mcp/<tunnel_id>` transport URL into
-the ChatGPT UI; those are used by the tunnel service and local configuration.
+For the Auth0 third-party application, enable and assign the intended domain-level
+login connection; creating the application without an allowed login connection is
+not sufficient for OAuth login. Configure Auth0 with the exact per-app callback URL
+shown by ChatGPT. ChatGPT uses a generated callback under
+`https://chatgpt.com/connector/oauth/`, not the bare `/connector/oauth` path; do not
+copy the generated per-app identifier into source, docs, or issue comments.
+
+For local loopback OAuth discovery, set `HARPOON_ALLOW_PLAINTEXT_HTTP=true` only in
+the trusted local Harpoon process environment. This flag is for the plaintext local
+loopback hop only; it is not permission to expose OAuth discovery or the Gateway
+publicly. Save the connector and complete the configured authorization flow. Do not
+paste the private Gateway URL or the underlying `/v1/mcp/<tunnel_id>` transport URL
+into the ChatGPT UI; those are used by the tunnel service and local configuration.
 Product UI labels, workspace policy, and write-capable custom-MCP availability vary
 by plan. Verify in this order:
 
