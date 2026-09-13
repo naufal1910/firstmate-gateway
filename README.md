@@ -24,7 +24,7 @@ The Gateway Core is intentionally independent from ChatGPT, MCP, HTTP, Telegram,
 
 ## Initial Capability Surface
 
-The planned initial Gateway operations are deliberately small:
+The initial Gateway operations are deliberately small:
 
 ```text
 list configured targets

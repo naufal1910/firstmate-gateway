@@ -446,4 +446,4 @@ Non-blocking:
 - [x] Checkpoints cover the major phases.
 - [x] Real FirstMate integration is continuous rather than postponed to the end.
 
-**Status: Ready to implement.**
+**Status:** This document records the dependency-ordered scope; current implementation status is tracked in the [root README](../README.md).
