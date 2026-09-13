@@ -43,6 +43,47 @@ pnpm check
 The release workflow also performs a packed-artifact clean-install check. Do not use
 an untrusted or development package when configuring a live FirstMate target.
 
+## Upgrade
+
+For a global npm installation, install the intended release explicitly and verify the
+reported version:
+
+```sh
+npm install --global firstmate-gateway@latest
+firstmate-gateway --version
+```
+
+To pin a specific release, replace `latest` with its version, for example
+`firstmate-gateway@0.5.0`. For a project-local installation, update the dependency
+and verify it through `npx`:
+
+```sh
+npm install firstmate-gateway@latest
+npx firstmate-gateway --version
+```
+
+For a source checkout, update the checkout and reinstall from its frozen lockfile:
+
+```sh
+git pull --ff-only
+corepack pnpm install --frozen-lockfile
+pnpm build
+node dist/cli.js --version
+```
+
+Package upgrades do not replace `config/local.yaml`; `init` refuses to overwrite an
+existing configuration unless `--force` is supplied. After upgrading, confirm the
+expected version, then validate the existing configuration and target inventory:
+
+```sh
+firstmate-gateway doctor
+firstmate-gateway targets
+```
+
+If a release requires a documented configuration change, review the release notes
+before editing the local file. Keep a copy of the prior package version so the
+installation can be pinned back while the configuration issue is investigated.
+
 ## Initialize and configure
 
 Create a configuration template without overwriting an existing file:
