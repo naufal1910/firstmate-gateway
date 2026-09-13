@@ -232,7 +232,7 @@ function readData(result: ReadResult, requestId: string): Record<string, unknown
  */
 export function createMcpServer(gateway: GatewayForMcp): McpServer {
   const server = new McpServer(
-    { name: 'firstmate-gateway', version: '0.4.0' },
+    { name: 'firstmate-gateway', version: '0.5.0' },
     { capabilities: {} },
   );
 

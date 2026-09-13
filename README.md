@@ -2,7 +2,7 @@
 
 A safe gateway for connecting ChatGPT and other clients to FirstMate instances running under Herdr.
 
-> **Status:** Phase 4 Tasks 10–11 and Checkpoint D are implemented: four client-neutral MCP tools are available over local stdio. HTTP and authentication remain intentionally disabled.
+> **Status:** Phase 5 Tasks 12–13 and Checkpoint E are implemented: the same four client-neutral MCP tools are available over unchanged local stdio and opt-in authenticated Streamable HTTP.
 
 ## What It Is
 
@@ -73,7 +73,7 @@ targets:
     agent: pi
 ```
 
-The current milestone exposes the reusable YAML validator, Herdr session locator, exact-one target resolver, Gateway Core status/send/read operations, and the structured Herdr socket client as TypeScript APIs. Prompt delivery is bounded and non-idempotent; raw reads use explicit bounded sources. Semantic reads are a separate provider boundary and currently return `SEMANTIC_OUTPUT_UNAVAILABLE` because no Pi semantic source contract has been validated. MCP, HTTP, authentication, and authorization commands remain intentionally disabled.
+The current milestone exposes the reusable YAML validator, Herdr session locator, exact-one target resolver, Gateway Core status/send/read operations, and the structured Herdr socket client as TypeScript APIs. Prompt delivery is bounded and non-idempotent; raw reads use explicit bounded sources. Semantic reads are a separate provider boundary and currently return `SEMANTIC_OUTPUT_UNAVAILABLE` because no Pi semantic source contract has been validated. MCP adapters delegate to those same Core operations; no transport duplicates Gateway or Herdr logic.
 
 CLI usage:
 
@@ -91,6 +91,37 @@ firstmate-gateway-mcp
 ```
 
 `firstmate-gateway-mcp` is the minimal local MCP stdio entry point. Its stdout is reserved exclusively for MCP protocol traffic; diagnostics go to stderr. It does not start a listener or manage FirstMate/Herdr lifecycle state. It exposes exactly `firstmate_list`, `firstmate_status`, `firstmate_send`, and `firstmate_read`.
+
+### Opt-in remote MCP
+
+Remote networking remains off when `remote` is absent or has `enabled: false`. The exported `startRemoteMcp(...)` API starts only after both validated enabled configuration and an injected operational OAuth/OIDC resource-server token verifier are present. No test token verifier or identity provider is shipped in production code.
+
+```yaml
+remote:
+  enabled: true
+  bind_host: 127.0.0.1
+  port: 3100
+  resource: https://gateway.example.com/mcp
+  authorization_servers:
+    - https://identity.example.com/tenant
+  allowed_hosts: [gateway.example.com]
+  allowed_origins: []
+  authorization:
+    principals:
+      replace-with-verified-client-principal:
+        targets: [firstmate2]
+```
+
+```ts
+import { startRemoteMcp } from 'firstmate-gateway';
+
+// `verifier` implements the official OAuthTokenVerifier resource-server seam.
+await startRemoteMcp({ tokenVerifier: verifier });
+```
+
+The resource identifier and every provider-neutral authorization-server issuer must be HTTPS even when an internal listener sits behind provider-neutral TLS termination. The Gateway publishes unauthenticated RFC 9728 Protected Resource Metadata at the path-aware `/.well-known/oauth-protected-resource/mcp` endpoint and points to it from 401 Bearer challenges. Metadata advertises only the configured resource, issuer URLs, and three supported scopes—never credentials. Non-loopback binding additionally requires `allow_public_bind: true`; no public bind is inferred. Host and Origin allowlists, 128 KiB request bodies, header/body timeouts, and bounded connection lifecycles are enforced before MCP dispatch. Access tokens must carry an exact matching resource and expiration. By default the verified OAuth `clientId` selects a configured principal policy; an OIDC-aware host may inject a `principalResolver` without changing Gateway Core.
+
+Authentication runs before authorization. `firstmate_list` and `firstmate_status` require `firstmate-gateway:read`; `firstmate_send` requires `firstmate-gateway:send`; raw `firstmate_read` requires `firstmate-gateway:diagnostics`; semantic read requires read and retains `SEMANTIC_OUTPUT_UNAVAILABLE`. Every target-specific operation is checked against the principal allowlist, and list results are filtered to that allowlist. Authentication failures are safe HTTP 401 responses; authenticated policy failures are `FORBIDDEN` MCP tool errors without Gateway invocation.
 
 `send` accepts exactly one source (positional message, `--file`, or stdin), preserves prompt data literally, rejects empty/oversized input (64 KiB UTF-8 maximum), and reports accepted delivery without waiting for completion. A timeout or other uncertain delivery is never retried. `read` defaults to `recent-unwrapped` and 120 lines; supported sources are `visible`, `recent`, `recent-unwrapped`, and `detection`. Raw reads never silently fall back to another source. Every operation dynamically resolves the current exact-one target; runtime pane IDs are never configuration identity or CLI input.
 
@@ -120,13 +151,14 @@ The implemented milestone is Phase 3:
 - **Task 8:** bounded raw `agent.read` with explicit source validation and dynamic re-resolution;
 - **Task 9:** separate semantic-reader provider boundary with explicit unavailable behavior;
 - **Checkpoint C:** real local Gateway CLI prompt/read round trip;
-- **Tasks 10–11 / Checkpoint D:** client-neutral MCP tools and local stdio transport.
+- **Tasks 10–11 / Checkpoint D:** client-neutral MCP tools and local stdio transport;
+- **Tasks 12–13 / Checkpoint E:** opt-in Streamable HTTP, provider-neutral bearer verification, independent scope authorization, and per-principal target allowlists.
 
-Remote HTTP, authentication, authorization, and release work are not included in this milestone.
+ChatGPT-specific integration, public deployment, provider-specific OAuth setup, and release work are not included in this milestone.
 
 ## MCP SDK compatibility evidence
 
-The MCP adapter uses the official v2 package split pinned to **`@modelcontextprotocol/server@2.0.0`** and **`@modelcontextprotocol/client@2.0.0`**. Immediately before updating the lockfile, `npm view @modelcontextprotocol/server version dist-tags --json` and the equivalent client command both reported `2.0.0` with `latest: 2.0.0`. The official v2 documentation ([overview](https://ts.sdk.modelcontextprotocol.io/v2/) and [protocol versions](https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions)) identifies v2 as the stable line. The published v2 declarations confirm `McpServer`/`registerTool` from `@modelcontextprotocol/server`, `serveStdio(...)` from `@modelcontextprotocol/server/stdio`, and `Client`/`StdioClientTransport` from `@modelcontextprotocol/client` and `/stdio`; the lockfile records the exact package integrities.
+The MCP adapter uses the official v2 package split pinned to **`@modelcontextprotocol/server@2.0.0`**, **`@modelcontextprotocol/client@2.0.0`**, and **`@modelcontextprotocol/node@2.0.0`**. Immediately before implementation, `npm view ... version dist-tags --json` reported `2.0.0` with `latest: 2.0.0` for all three. The published v2 declarations confirm `McpServer`/`registerTool` and per-request `createMcpHandler(...)` from the server package, `toNodeHandler(...)` from the Node adapter, official `OAuthTokenVerifier`/`verifyBearerToken(...)` and `getOAuthProtectedResourceMetadataUrl(...)` resource-server seams, `serveStdio(...)` for unchanged local stdio, and `Client` with `StreamableHTTPClientTransport` for real-client tests. The lockfile records exact package integrities.
 
 ## Safety Principles
 

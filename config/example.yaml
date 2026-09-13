@@ -13,3 +13,9 @@ targets:
   #   herdr_session: replace-with-local-session
   #   firstmate_home: /absolute/path/to/firstmate2
   #   agent: pi
+
+# Remote Streamable HTTP is opt-in. Enabling it also requires explicit bind,
+# HTTPS resource, authorization-server issuer, Host/Origin, authorization policy, and an injected OAuth/OIDC
+# access-token verifier; this example contains no token or credential.
+remote:
+  enabled: false
