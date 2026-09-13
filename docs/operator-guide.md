@@ -263,8 +263,12 @@ Use the exact command and endpoint form supported by the installed tunnel-client
 release. Do not expose a raw public Gateway listener, do not substitute a different
 path, and do not use a tunnel ID as a FirstMate target identity.
 
-In the ChatGPT workspace's supported MCP/connector settings, add the MCP endpoint
-published by the connected tunnel and complete the configured authorization flow.
+In the ChatGPT workspace's supported app/connector settings, create or configure
+the connection with `Connection: Tunnel`. Select the intended tunnel from the
+available-tunnels list, or paste the `tunnel_id` when the tunnel is not listed.
+Save the connector and complete the configured authorization flow. Do not paste
+the private Gateway URL or the underlying `/v1/mcp/<tunnel_id>` transport URL into
+the ChatGPT UI; those are used by the tunnel service and local configuration.
 Product UI labels, workspace policy, and write-capable custom-MCP availability vary
 by plan. Verify in this order:
 
@@ -286,8 +290,10 @@ retry a prompt after an uncertain response; inspect the target separately.
 | Target not found or ambiguous | Confirm the FirstMate home and agent kind; the resolver requires exactly one live match. |
 | Protocol/socket check fails | Upgrade or repair Herdr only after reviewing the compatibility diagnostic; no terminal fallback is used. |
 | Remote startup refuses to listen | Keep remote disabled until bind, HTTPS resource, issuer, host/origin policy, authorization policy, and an operational verifier are present. |
+| Host or Origin is rejected | Confirm the request reaches the expected private listener host, then set `allowed_hosts` and `allowed_origins` to the exact hostnames observed by that listener; omit schemes, ports, and wildcards. |
 | Remote request is `401` | Check the issuer flow and the exact token resource/audience; for Secure MCP Tunnel check `external_resource`. |
 | Remote request is `403` | Check the verified principal's scope and configured target allowlist. |
+| ChatGPT cannot find or reach the tunnel | In ChatGPT use `Connection: Tunnel` and select or paste the tunnel ID; do not paste the private MCP URL. Then run `tunnel-client runtimes status firstmate-gateway --json` and require the managed runtime to report `process_running`, `healthy`, and `ready` before retrying discovery. |
 | Semantic read is unavailable | Use bounded raw read, or install/inject a separately validated semantic provider. |
 
 ## Release automation
