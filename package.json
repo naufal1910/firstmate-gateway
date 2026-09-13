@@ -14,7 +14,8 @@
   "packageManager": "pnpm@11.24.0",
   "bin": {
     "firstmate-gateway": "./dist/cli.js",
-    "firstmate-gateway-mcp": "./dist/mcp-stdio.js"
+    "firstmate-gateway-mcp": "./dist/mcp-stdio.js",
+    "firstmate-gateway-remote": "./dist/mcp-http-auth0.js"
   },
   "exports": {
     ".": {
@@ -44,6 +45,7 @@
   "dependencies": {
     "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
+    "jose": "6.2.12",
     "yaml": "^2.8.1",
     "zod": "^4.1.5"
   },

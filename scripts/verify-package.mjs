@@ -40,9 +40,11 @@ try {
   const installedCli = join(installedRoot, 'dist', 'cli.js');
   const installedBin = join(consumer, 'node_modules', '.bin', 'firstmate-gateway');
   const installedMcpBin = join(consumer, 'node_modules', '.bin', 'firstmate-gateway-mcp');
+  const installedRemoteBin = join(consumer, 'node_modules', '.bin', 'firstmate-gateway-remote');
   assert.equal(existsSync(installedCli), true, 'packed package must contain the CLI');
   assert.equal(existsSync(installedBin), true, 'clean install must link the CLI bin');
   assert.equal(existsSync(installedMcpBin), true, 'clean install must link the MCP bin');
+  assert.equal(existsSync(installedRemoteBin), true, 'clean install must link the Auth0 remote bin');
   assert.equal(existsSync(join(installedRoot, 'config', 'example.yaml')), true, 'packed package must contain config/example.yaml');
   assert.equal(existsSync(join(installedRoot, 'docs', 'operator-guide.md')), true, 'packed package must contain the operator guide');
   assert.equal(existsSync(join(installedRoot, 'config', 'local.yaml')), false, 'packed package must not contain local configuration');
@@ -55,6 +57,18 @@ try {
     cwd: consumer,
   }).trim();
   assert.equal(version, packageJson.version, 'installed CLI version must match package metadata');
+  const remoteHelp = execFileSync(installedRemoteBin, ['--help'], {
+    encoding: 'utf8',
+    cwd: consumer,
+  });
+  assert.match(remoteHelp, /firstmate-gateway-remote/);
+  const missingRemoteConfig = spawnSync(installedRemoteBin, [], {
+    encoding: 'utf8',
+    cwd: consumer,
+    env: { ...process.env, FIRSTMATE_GATEWAY_CONFIG: join(consumer, 'missing.yaml') },
+  });
+  assert.equal(missingRemoteConfig.status, 1, 'remote runner must fail closed without configuration');
+  assert.match(missingRemoteConfig.stderr, /^CONFIG_NOT_FOUND:/);
 
   const configPath = join(consumer, 'local.yaml');
   const initOutput = execFileSync(installedBin, ['init', '--path', configPath, '--json'], {

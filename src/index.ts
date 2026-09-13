@@ -1,4 +1,4 @@
-export const VERSION = '0.5.0';
+export { VERSION } from './version.js';
 
 export {
   ConfigError,
@@ -140,3 +140,13 @@ export {
   type RemoteScope,
   type RemoteTokenVerifier,
 } from './remote-auth.js';
+
+export {
+  createAuth0TokenVerifier,
+  type Auth0TokenVerifierOptions,
+} from './auth0-verifier.js';
+
+export {
+  startAuth0RemoteMcp,
+  type StartAuth0RemoteMcpOptions,
+} from './mcp-http-auth0.js';

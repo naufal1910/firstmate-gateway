@@ -116,35 +116,45 @@ firstmate-gateway-mcp
 
 ### Opt-in remote MCP
 
-Remote networking remains off when `remote` is absent or has `enabled: false`. The exported `startRemoteMcp(...)` API starts only after both validated enabled configuration and an injected operational OAuth/OIDC resource-server token verifier are present. No test token verifier or identity provider is shipped in production code.
+Remote networking remains off when `remote` is absent or has `enabled: false`. The packaged `firstmate-gateway-remote` runner loads one configured Auth0 issuer, validates OIDC discovery, preloads its RS256 JWKS, and then injects the concrete verifier into `startRemoteMcp(...)`. The runner refuses non-loopback binds. The exported provider-neutral API still starts only after validated enabled configuration and an operational verifier are present. No test verifier, identity provider, token, or client secret is shipped.
 
 ```yaml
 remote:
   enabled: true
   bind_host: 127.0.0.1
   port: 3100
-  resource: https://gateway.example.com/mcp
+  resource: https://private-gateway.example.com/mcp
   # For Secure MCP Tunnel v0.0.14, keep the private /mcp resource above and
   # set the external token audience to the OpenAI-hosted tunnel path:
   # external_resource: https://<tunnel-origin>/v1/mcp/tunnel_<32-lowercase-hexadecimal-characters>
   authorization_servers:
-    - https://identity.example.com/tenant
-  allowed_hosts: [gateway.example.com]
+    - https://your-tenant.region.auth0.com/
+  allowed_hosts: [127.0.0.1]
   allowed_origins: []
   authorization:
     principals:
-      replace-with-verified-client-principal:
+      replace-with-verified-auth0-client-id:
         targets: [firstmate2]
 ```
+
+For the approved Auth0 deployment, set `remote.authorization_servers` to
+`https://firstmate-gateway.jp.auth0.com/`. Put the exact API identifier and verified
+principal only in protected local configuration, then run:
+
+```sh
+FIRSTMATE_GATEWAY_CONFIG=/protected/path/to/local.yaml firstmate-gateway-remote
+```
+
+The Gateway needs no Auth0 client secret. Embedders using another OAuth/OIDC verifier
+can continue to inject the official resource-server seam directly:
 
 ```ts
 import { startRemoteMcp } from 'firstmate-gateway';
 
-// `verifier` implements the official OAuthTokenVerifier resource-server seam.
 await startRemoteMcp({ tokenVerifier: verifier });
 ```
 
-The resource identifier and every provider-neutral authorization-server issuer must be HTTPS even when an internal listener sits behind provider-neutral TLS termination. The Gateway publishes unauthenticated RFC 9728 Protected Resource Metadata at the path-aware `/.well-known/oauth-protected-resource/mcp` endpoint and points to it from 401 Bearer challenges. Metadata advertises only the configured private resource, issuer URLs, and three supported scopes—never credentials. For OpenAI Secure MCP Tunnel v0.0.14, the tunnel service rewrites that metadata resource and challenge to `/v1/mcp/<tunnel_id>`; set `external_resource` to that exact HTTPS URL so access-token resource validation remains enabled rather than accepting either identity. Non-loopback binding additionally requires `allow_public_bind: true`; no public bind is inferred. Host and Origin allowlists, 128 KiB request bodies, header/body timeouts, and bounded connection lifecycles are enforced before MCP dispatch. Access tokens must carry an exact matching resource and expiration. By default the verified OAuth `clientId` selects a configured principal policy; an OIDC-aware host may inject a `principalResolver` without changing Gateway Core.
+The resource identifier and every provider-neutral authorization-server issuer must be HTTPS even when an internal listener sits behind provider-neutral TLS termination. The Gateway publishes unauthenticated RFC 9728 Protected Resource Metadata at the path-aware `/.well-known/oauth-protected-resource/mcp` endpoint and points to it from 401 Bearer challenges. Metadata advertises only the configured private resource, issuer URLs, and three supported scopes—never credentials. For OpenAI Secure MCP Tunnel v0.0.14, the tunnel service rewrites that metadata resource and challenge to `/v1/mcp/<tunnel_id>`; set `external_resource` to that exact HTTPS URL so access-token resource validation remains enabled rather than accepting either identity. The lower-level API additionally requires `allow_public_bind: true` for non-loopback binding, while the packaged Auth0 runner always refuses it; no public bind is inferred. Host and Origin allowlists, 128 KiB request bodies, header/body timeouts, and bounded connection lifecycles are enforced before MCP dispatch. Access tokens must carry an exact matching resource and expiration. By default the verified OAuth `clientId` selects a configured principal policy; an OIDC-aware host may inject a `principalResolver` without changing Gateway Core.
 
 Authentication runs before authorization. `firstmate_list` and `firstmate_status` require `firstmate-gateway:read`; `firstmate_send` requires `firstmate-gateway:send`; raw `firstmate_read` requires `firstmate-gateway:diagnostics`; semantic read requires read and retains `SEMANTIC_OUTPUT_UNAVAILABLE`. Every target-specific operation is checked against the principal allowlist, and list results are filtered to that allowlist. Authentication failures are safe HTTP 401 responses; authenticated policy failures are `FORBIDDEN` MCP tool errors without Gateway invocation.
 
@@ -178,7 +188,7 @@ The implemented milestone includes:
 - **Task 14 compatibility path:** Secure MCP Tunnel v0.0.14 external resource/audience handling without weakening the private `/mcp` identity;
 - **Tasks 15–16 / Checkpoint F preparation:** operator documentation, safe `init`, packed-install verification, and CI/release automation with npm trusted publishing.
 
-A live ChatGPT workspace test and provider-specific OAuth deployment remain external
+A live ChatGPT workspace test and credentialed Auth0/tunnel run remain external
 operational evidence. The Gateway does not claim public plugin hosting or a specific
 ChatGPT plan's write capability.
 
