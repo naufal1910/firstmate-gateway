@@ -68,5 +68,7 @@ jobs:
           package-manager-cache: false
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build package
+        run: pnpm build
       - name: Publish package
         run: npm publish

@@ -196,7 +196,9 @@ authentication implementation. The remote listener publishes protected-resource
 metadata at the path-aware `/.well-known/oauth-protected-resource/mcp` endpoint and
 keeps the private Gateway resource at `/mcp`.
 
-A minimal enabled configuration must include all of the following:
+A minimal enabled reverse-proxy configuration must include all of the following.
+This example assumes the trusted proxy forwards the external hostname
+`gateway.example.com` in the `Host` header:
 
 ```yaml
 remote:
@@ -214,7 +216,29 @@ remote:
         targets: [firstmate2]
 ```
 
-Use a private loopback bind behind a trusted TLS reverse proxy or private tunnel.
+For a direct loopback connection from Secure MCP Tunnel, use a separate configuration
+with the listener Host allowlist set to the loopback host. Keep the private resource
+identity HTTPS even though the local hop uses HTTP:
+
+```yaml
+remote:
+  enabled: true
+  bind_host: 127.0.0.1
+  port: 3100
+  resource: https://private-gateway.example.com/mcp
+  external_resource: https://<tunnel-origin>/v1/mcp/tunnel_<32-lowercase-hexadecimal-characters>
+  authorization_servers:
+    - https://identity.example.com/tenant
+  allowed_hosts: [127.0.0.1]
+  allowed_origins: []
+  authorization:
+    principals:
+      chatgpt-workspace-client:
+        targets: [firstmate2]
+```
+
+Use a private loopback bind behind either a trusted TLS reverse proxy or a private
+tunnel, and choose the matching configuration above.
 Non-loopback binding requires the separate `allow_public_bind: true` opt-in; it is
 never inferred from a resource URL. Bearer authentication, exact token-resource
 matching, expiration, scopes, principal policy, target allowlists, Host/Origin
