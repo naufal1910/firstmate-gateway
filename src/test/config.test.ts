@@ -74,6 +74,7 @@ remote:
     port: 0,
     allowPublicBind: false,
     resource: 'https://gateway.example.test/mcp',
+    externalResource: 'https://gateway.example.test/mcp',
     authorizationServers: [
       'https://identity.example.test/tenant',
       'https://backup-identity.example.test/',
@@ -82,6 +83,35 @@ remote:
     allowedOrigins: [],
     principals: { 'oauth-client': { targets: ['firstmate2'] } },
   });
+});
+
+test('accepts a Secure MCP Tunnel resource separately from the private MCP resource', () => {
+  const config = parseConfig(`
+version: 1
+targets:
+  firstmate2:
+    herdr_session: session-a
+    firstmate_home: /srv/firstmate2
+    agent: pi
+remote:
+  enabled: true
+  bind_host: 127.0.0.1
+  port: 3000
+  resource: https://gateway.example.test/mcp
+  external_resource: https://mcp.openai.example/v1/mcp/tunnel_0123456789abcdef0123456789abcdef
+  authorization_servers:
+    - https://identity.example.test
+  allowed_hosts: [127.0.0.1]
+  authorization:
+    principals:
+      oauth-client:
+        targets: [firstmate2]
+`);
+
+  assert.equal(config.remote.enabled, true);
+  if (!config.remote.enabled) return;
+  assert.equal(config.remote.resource, 'https://gateway.example.test/mcp');
+  assert.equal(config.remote.externalResource, 'https://mcp.openai.example/v1/mcp/tunnel_0123456789abcdef0123456789abcdef');
 });
 
 test('remote startup configuration fails closed when security policy is incomplete or unsafe', () => {
@@ -140,6 +170,28 @@ test('remote startup configuration fails closed when security policy is incomple
         port: 3000,
         resource: 'https://gateway.example.test/mcp',
         authorization_servers: authorizationServers,
+        allowed_hosts: ['127.0.0.1'],
+        authorization: { principals: { operator: { targets: ['firstmate2'] } } },
+      },
+    }), ConfigError);
+  }
+
+  for (const externalResource of [
+    'https://gateway.example.test/mcp',
+    'https://mcp.openai.example/v1/mcp/tunnel_INVALID',
+    'https://mcp.openai.example/v1/mcp/tunnel_0123456789abcdef0123456789abcdef?x=1',
+    'http://mcp.openai.example/v1/mcp/tunnel_0123456789abcdef0123456789abcdef',
+  ]) {
+    assert.throws(() => validateConfig({
+      version: 1,
+      targets: { firstmate2: target },
+      remote: {
+        enabled: true,
+        bind_host: '127.0.0.1',
+        port: 3000,
+        resource: 'https://gateway.example.test/mcp',
+        external_resource: externalResource,
+        authorization_servers: ['https://identity.example.test'],
         allowed_hosts: ['127.0.0.1'],
         authorization: { principals: { operator: { targets: ['firstmate2'] } } },
       },

@@ -2,7 +2,7 @@
 
 A safe gateway for connecting ChatGPT and other clients to FirstMate instances running under Herdr.
 
-> **Status:** Phase 5 Tasks 12–13 and Checkpoint E are implemented: the same four client-neutral MCP tools are available over unchanged local stdio and opt-in authenticated Streamable HTTP.
+> **Status:** Phase 6 implementation work covers the safe tunnel-compatible path, operator documentation, and dry-run release automation. A live ChatGPT workspace/plan verification remains environment-dependent and is not claimed unless explicitly run against a connected workspace.
 
 ## What It Is
 
@@ -48,9 +48,28 @@ The project does **not** expose arbitrary shell, sudo, filesystem, or generic te
 - dynamic target discovery; no persistent pane IDs
 - MCP as an adapter over Gateway Core
 - local/private-first deployment
-- npm as the planned primary distribution channel
+- npm as the primary distribution channel, with trusted-publishing release automation
 
 ## Local foundation
+
+Prerequisites are Node.js 24 LTS or newer, a supported Herdr installation, and a
+FirstMate instance running under Herdr. The complete operator procedure, including
+installation, `init`, `doctor`, remote setup, ChatGPT setup, and troubleshooting is
+in the [operator guide](./docs/operator-guide.md).
+
+For a published package:
+
+```sh
+npm install --global firstmate-gateway
+firstmate-gateway --version
+```
+
+For a project-local package, use `npm install firstmate-gateway` and `npx firstmate-gateway ...`. From a source checkout, use the pinned pnpm version:
+
+```sh
+corepack pnpm install --frozen-lockfile
+pnpm check
+```
 
 The package targets Node.js 24 LTS, uses ESM, and is developed with pnpm:
 
@@ -78,6 +97,9 @@ The current milestone exposes the reusable YAML validator, Herdr session locator
 CLI usage:
 
 ```sh
+firstmate-gateway init
+firstmate-gateway init --path "$HOME/.config/firstmate-gateway/local.yaml"
+firstmate-gateway doctor
 firstmate-gateway targets
 firstmate-gateway status firstmate2
 firstmate-gateway send firstmate2 "Reply exactly with: ..."
@@ -86,7 +108,7 @@ firstmate-gateway send firstmate2 --file ./prompt.txt
 firstmate-gateway read firstmate2
 firstmate-gateway read firstmate2 --source recent --count 40 --json
 firstmate-gateway read firstmate2 --semantic --json
-firstmate-gateway doctor
+firstmate-gateway doctor --json
 firstmate-gateway-mcp
 ```
 
@@ -102,6 +124,9 @@ remote:
   bind_host: 127.0.0.1
   port: 3100
   resource: https://gateway.example.com/mcp
+  # For Secure MCP Tunnel v0.0.14, keep the private /mcp resource above and
+  # set the external token audience to the OpenAI-hosted tunnel path:
+  # external_resource: https://<tunnel-origin>/v1/mcp/tunnel_<32-lowercase-letters-or-digits>
   authorization_servers:
     - https://identity.example.com/tenant
   allowed_hosts: [gateway.example.com]
@@ -119,7 +144,7 @@ import { startRemoteMcp } from 'firstmate-gateway';
 await startRemoteMcp({ tokenVerifier: verifier });
 ```
 
-The resource identifier and every provider-neutral authorization-server issuer must be HTTPS even when an internal listener sits behind provider-neutral TLS termination. The Gateway publishes unauthenticated RFC 9728 Protected Resource Metadata at the path-aware `/.well-known/oauth-protected-resource/mcp` endpoint and points to it from 401 Bearer challenges. Metadata advertises only the configured resource, issuer URLs, and three supported scopes—never credentials. Non-loopback binding additionally requires `allow_public_bind: true`; no public bind is inferred. Host and Origin allowlists, 128 KiB request bodies, header/body timeouts, and bounded connection lifecycles are enforced before MCP dispatch. Access tokens must carry an exact matching resource and expiration. By default the verified OAuth `clientId` selects a configured principal policy; an OIDC-aware host may inject a `principalResolver` without changing Gateway Core.
+The resource identifier and every provider-neutral authorization-server issuer must be HTTPS even when an internal listener sits behind provider-neutral TLS termination. The Gateway publishes unauthenticated RFC 9728 Protected Resource Metadata at the path-aware `/.well-known/oauth-protected-resource/mcp` endpoint and points to it from 401 Bearer challenges. Metadata advertises only the configured private resource, issuer URLs, and three supported scopes—never credentials. For OpenAI Secure MCP Tunnel v0.0.14, the tunnel service rewrites that metadata resource and challenge to `/v1/mcp/<tunnel_id>`; set `external_resource` to that exact HTTPS URL so access-token resource validation remains enabled rather than accepting either identity. Non-loopback binding additionally requires `allow_public_bind: true`; no public bind is inferred. Host and Origin allowlists, 128 KiB request bodies, header/body timeouts, and bounded connection lifecycles are enforced before MCP dispatch. Access tokens must carry an exact matching resource and expiration. By default the verified OAuth `clientId` selects a configured principal policy; an OIDC-aware host may inject a `principalResolver` without changing Gateway Core.
 
 Authentication runs before authorization. `firstmate_list` and `firstmate_status` require `firstmate-gateway:read`; `firstmate_send` requires `firstmate-gateway:send`; raw `firstmate_read` requires `firstmate-gateway:diagnostics`; semantic read requires read and retains `SEMANTIC_OUTPUT_UNAVAILABLE`. Every target-specific operation is checked against the principal allowlist, and list results are filtered to that allowlist. Authentication failures are safe HTTP 401 responses; authenticated policy failures are `FORBIDDEN` MCP tool errors without Gateway invocation.
 
@@ -143,18 +168,19 @@ AI agents and implementers should also read [`AGENTS.md`](./AGENTS.md) before ma
 
 ## Current Implementation Milestone
 
-The implemented milestone is Phase 3:
+The implemented milestone includes:
 
 - **Tasks 1–3 / Checkpoint A:** package foundation, Herdr protocol compatibility, and validated YAML configuration;
 - **Tasks 4–6 / Checkpoint B:** named session discovery, dynamic exact-one target resolution, and read-only targets/status/doctor CLI commands;
-- **Task 7:** bounded, structured `agent.prompt` delivery with no automatic retry after uncertainty;
-- **Task 8:** bounded raw `agent.read` with explicit source validation and dynamic re-resolution;
-- **Task 9:** separate semantic-reader provider boundary with explicit unavailable behavior;
-- **Checkpoint C:** real local Gateway CLI prompt/read round trip;
+- **Tasks 7–9 / Checkpoint C:** bounded structured prompt delivery, bounded raw reads, and an explicit semantic-reader capability boundary;
 - **Tasks 10–11 / Checkpoint D:** client-neutral MCP tools and local stdio transport;
-- **Tasks 12–13 / Checkpoint E:** opt-in Streamable HTTP, provider-neutral bearer verification, independent scope authorization, and per-principal target allowlists.
+- **Tasks 12–13 / Checkpoint E:** opt-in Streamable HTTP, provider-neutral bearer verification, independent scope authorization, and per-principal target allowlists;
+- **Task 14 compatibility path:** Secure MCP Tunnel v0.0.14 external resource/audience handling without weakening the private `/mcp` identity;
+- **Tasks 15–16 / Checkpoint F preparation:** operator documentation, safe `init`, packed-install verification, and CI/release automation with npm trusted publishing.
 
-ChatGPT-specific integration, public deployment, provider-specific OAuth setup, and release work are not included in this milestone.
+A live ChatGPT workspace test and provider-specific OAuth deployment remain external
+operational evidence. The Gateway does not claim public plugin hosting or a specific
+ChatGPT plan's write capability.
 
 ## MCP SDK compatibility evidence
 

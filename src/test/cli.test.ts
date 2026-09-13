@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -32,6 +32,44 @@ targets:
     firstmate_home: /home/agent/workspace/firstmate2
     agent: pi
 `;
+
+test('init creates a private example config and refuses replacement without --force', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'firstmate-gateway-init-'));
+  const configPath = join(directory, 'nested', 'local.yaml');
+  const env = { ...process.env, FIRSTMATE_GATEWAY_CONFIG: configPath };
+  try {
+    const created = spawnSync(process.execPath, [cliPath, 'init', '--json'], {
+      encoding: 'utf8',
+      env,
+    });
+    assert.equal(created.status, 0);
+    assert.deepEqual(JSON.parse(created.stdout as string), { path: configPath, created: true });
+    assert.equal(statSync(configPath).mode & 0o777, 0o600);
+    const template = readFileSync(configPath, 'utf8');
+    assert.match(template, /^version: 1$/m);
+    assert.match(template, /^remote:\n/m);
+
+    const refused = spawnSync(process.execPath, [cliPath, 'init', '--path', configPath, '--json'], {
+      encoding: 'utf8',
+      env,
+    });
+    assert.equal(refused.status, 1);
+    const refusedPayload = JSON.parse(refused.stdout as string) as { readonly error: { readonly code: string; readonly message: string } };
+    assert.equal(refusedPayload.error.code, 'CONFIG_INVALID');
+    assert.equal(refusedPayload.error.message, 'configuration file already exists; use --force to replace it');
+    assert.equal(readFileSync(configPath, 'utf8'), template);
+
+    const replaced = spawnSync(process.execPath, [cliPath, 'init', '--path', configPath, '--force', '--json'], {
+      encoding: 'utf8',
+      env,
+    });
+    assert.equal(replaced.status, 0);
+    assert.deepEqual(JSON.parse(replaced.stdout as string), { path: configPath, created: true });
+    assert.equal(readFileSync(configPath, 'utf8'), template);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test('targets JSON output is stable and omits absolute paths and pane IDs', () => {
   withConfig(validConfig, (configPath) => {

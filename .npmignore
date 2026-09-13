@@ -1,0 +1,2 @@
+# Tests are compiled for the repository test command but are not runtime artifacts.
+dist/test/

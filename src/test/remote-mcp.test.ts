@@ -23,6 +23,7 @@ import {
 import type { GatewayForMcp } from '../mcp.js';
 
 const RESOURCE = 'https://gateway.example.test/mcp';
+const TUNNEL_RESOURCE = 'https://mcp.openai.example/v1/mcp/tunnel_0123456789abcdef0123456789abcdef';
 const MARKER = 'FIRSTMATE_GATEWAY_CHECKPOINT_E_OK';
 const SECRET_TOKEN = 'operator-token-secret-value';
 const SECRET_PROMPT = 'prompt-body-must-not-leak';
@@ -50,7 +51,7 @@ function structured(result: McpCallResult): Record<string, unknown> {
   return content as Record<string, unknown>;
 }
 
-function remoteConfig(): GatewayConfig {
+function remoteConfig(externalResource?: string): GatewayConfig {
   return validateConfig({
     version: 1,
     targets: {
@@ -70,6 +71,7 @@ function remoteConfig(): GatewayConfig {
       bind_host: '127.0.0.1',
       port: 0,
       resource: RESOURCE,
+      ...(externalResource === undefined ? {} : { external_resource: externalResource }),
       authorization_servers: [
         'https://identity.example.test/tenant',
         'https://backup-identity.example.test',
@@ -162,12 +164,14 @@ function fakeGateway(): { readonly gateway: GatewayForMcp; readonly counters: Ga
 
 /** Explicit test fixture only; production supplies the exported verifier seam. */
 class FixtureTokenVerifier implements OAuthTokenVerifier {
+  public constructor(private readonly resource = RESOURCE) {}
+
   public async verifyAccessToken(token: string): Promise<AuthInfo> {
     if (token === 'invalid-token' || token === 'rejected-token') throw new Error('fixture rejection');
     const expiresAt = token === 'expired-token'
       ? Math.floor(Date.now() / 1000) - 60
       : Math.floor(Date.now() / 1000) + 3_600;
-    const base = { token, expiresAt, resource: new URL(RESOURCE) };
+    const base = { token, expiresAt, resource: new URL(this.resource) };
     switch (token) {
       case 'read-token':
         return { ...base, clientId: 'read-client', scopes: ['firstmate-gateway:read'] };
@@ -197,6 +201,8 @@ class FixtureTokenVerifier implements OAuthTokenVerifier {
         return { ...base, clientId: 'unmapped-client', scopes: ['firstmate-gateway:read'] };
       case 'wrong-resource-token':
         return { ...base, clientId: 'operator-client', scopes: ['firstmate-gateway:read'], resource: new URL('https://other.example.test/mcp') };
+      case 'private-resource-token':
+        return { ...base, clientId: 'operator-client', scopes: ['firstmate-gateway:read'], resource: new URL(RESOURCE) };
       case 'expired-token':
         return { ...base, clientId: 'operator-client', scopes: ['firstmate-gateway:read'] };
       default:
@@ -212,13 +218,16 @@ interface RunningFixture {
   readonly diagnostics: RemoteDiagnosticEvent[];
 }
 
-async function startFixture(): Promise<RunningFixture> {
+async function startFixture(
+  config = remoteConfig(),
+  verifier: OAuthTokenVerifier = new FixtureTokenVerifier(),
+): Promise<RunningFixture> {
   const { gateway, counters } = fakeGateway();
   const diagnostics: RemoteDiagnosticEvent[] = [];
   const started = await startRemoteMcp({
-    config: remoteConfig(),
+    config,
     gateway,
-    tokenVerifier: new FixtureTokenVerifier(),
+    tokenVerifier: verifier,
     onDiagnostic: (event) => diagnostics.push(event),
   });
   assert.equal(started.enabled, true);
@@ -352,6 +361,52 @@ test('RFC 9728 metadata is public, path-aware, points to configured issuers, and
     assertNoSensitiveLeak(challengeText);
     assertNoSensitiveLeak(challenge.headers.get('www-authenticate') ?? '');
     assert.deepEqual(fixture.counters, { list: 0, status: 0, send: 0, read: 0 });
+  } finally {
+    await fixture.server.close();
+  }
+});
+
+test('Secure MCP Tunnel resource rewriting keeps local metadata private and binds auth to the external resource', async () => {
+  const fixture = await startFixture(
+    remoteConfig(TUNNEL_RESOURCE),
+    new FixtureTokenVerifier(TUNNEL_RESOURCE),
+  );
+  try {
+    const metadataResponse = await fetch(new URL('/.well-known/oauth-protected-resource/mcp', fixture.url));
+    assert.equal(metadataResponse.status, 200);
+    const metadata = JSON.parse(await metadataResponse.text()) as Record<string, unknown>;
+    assert.equal(metadata.resource, RESOURCE);
+
+    const challenge = await fetch(fixture.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+    });
+    assert.equal(challenge.status, 401);
+    assert.equal(
+      challenge.headers.get('www-authenticate'),
+      'Bearer error="invalid_token", error_description="Authentication required", resource_metadata="https://gateway.example.test/.well-known/oauth-protected-resource/mcp"',
+    );
+
+    const client = await connect(fixture.url, 'read-token');
+    try {
+      const list = objectResult(await client.callTool({ name: 'firstmate_list', arguments: {} }));
+      assert.deepEqual((structured(list).data as Record<string, unknown>).targets, [
+        { target: 'firstmate2', agent: 'pi' },
+      ]);
+      assert.equal(fixture.counters.list, 1);
+    } finally {
+      await client.close();
+    }
+
+    await assert.rejects(
+      connect(fixture.url, 'private-resource-token'),
+      (error: unknown) => {
+        assertNoSensitiveLeak(error instanceof Error ? error.message : error);
+        return true;
+      },
+    );
+    assert.equal(fixture.counters.list, 1);
   } finally {
     await fixture.server.close();
   }

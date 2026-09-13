@@ -21,6 +21,7 @@ function isPolicyPrincipal(value: string): boolean {
 }
 
 export const REMOTE_MCP_PATH = '/mcp';
+const TUNNEL_MCP_RESOURCE_PATH = /^\/v1\/mcp\/tunnel_[a-z0-9]{32}$/;
 
 function isLoopbackHost(host: string): boolean {
   return host === '127.0.0.1' || host === '::1';
@@ -40,6 +41,16 @@ function isSecureResource(value: string): boolean {
     const url = new URL(value);
     return url.protocol === 'https:' && url.username === '' && url.password === '' &&
       url.hash === '' && url.search === '' && url.pathname === REMOTE_MCP_PATH;
+  } catch {
+    return false;
+  }
+}
+
+function isSecureTunnelResource(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.username === '' && url.password === '' &&
+      url.hash === '' && url.search === '' && TUNNEL_MCP_RESOURCE_PATH.test(url.pathname);
   } catch {
     return false;
   }
@@ -105,6 +116,10 @@ const enabledRemoteSchema = z.object({
     isSecureResource,
     `resource must be an HTTPS URL ending at ${REMOTE_MCP_PATH} without credentials, query, or fragment`,
   ),
+  external_resource: z.string().refine(
+    isSecureTunnelResource,
+    'external_resource must be an HTTPS tunnel URL at /v1/mcp/<tunnel_id> without credentials, query, or fragment',
+  ).optional(),
   authorization_servers: z.array(z.string().refine(
     isSecureIssuer,
     'authorization server issuers must be HTTPS URLs without credentials, query, or fragment',
@@ -192,7 +207,10 @@ export interface EnabledRemoteConfig {
   readonly bindHost: string;
   readonly port: number;
   readonly allowPublicBind: boolean;
+  /** Private MCP resource identity; remains bound to the local /mcp listener. */
   readonly resource: string;
+  /** Optional OpenAI Secure MCP Tunnel resource identity used for token audiences. */
+  readonly externalResource?: string;
   readonly authorizationServers: readonly string[];
   readonly allowedHosts: readonly string[];
   readonly allowedOrigins: readonly string[];
@@ -255,6 +273,7 @@ export function validateConfig(input: unknown): GatewayConfig {
       port: result.data.remote.port,
       allowPublicBind: result.data.remote.allow_public_bind,
       resource: new URL(result.data.remote.resource).href,
+      externalResource: new URL(result.data.remote.external_resource ?? result.data.remote.resource).href,
       authorizationServers: Object.freeze(
         result.data.remote.authorization_servers.map((issuer) => new URL(issuer).href),
       ),
