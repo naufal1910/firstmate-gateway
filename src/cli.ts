@@ -23,12 +23,14 @@ import {
 } from './gateway.js';
 import { VERSION } from './index.js';
 import { GatewayError, withRequestId, type GatewayErrorPayload } from './errors.js';
+import { initializeConfig } from './init.js';
 
 const HELP = `firstmate-gateway ${VERSION}
 
 Usage:
   firstmate-gateway --help
   firstmate-gateway --version
+  firstmate-gateway init [--path <path>] [--force] [--json]
   firstmate-gateway targets [--json]
   firstmate-gateway status <target> [--json]
   firstmate-gateway send <target> [message] [--file <path>] [--json]
@@ -40,7 +42,7 @@ Send accepts exactly one message source: a positional message, --file, or stdin.
 Raw read defaults to source ${DEFAULT_READ_SOURCE} and ${DEFAULT_READ_LINES} lines (maximum ${MAX_READ_LINES}).
 `;
 
-type Command = 'targets' | 'status' | 'doctor' | 'send' | 'read';
+type Command = 'targets' | 'status' | 'doctor' | 'send' | 'read' | 'init';
 
 interface ParsedArgs {
   readonly command?: Command;
@@ -48,6 +50,9 @@ interface ParsedArgs {
   readonly message?: string;
   readonly file?: string;
   readonly fileSpecified: boolean;
+  readonly initPath?: string;
+  readonly initPathSpecified?: boolean;
+  readonly force?: boolean;
   readonly source?: ReadInput['source'];
   readonly count?: number;
   readonly mode?: ReadMode;
@@ -89,6 +94,9 @@ function parseArgs(args: readonly string[]): ParsedArgs {
   let version = false;
   let file: string | undefined;
   let fileSpecified = false;
+  let initPath: string | undefined;
+  let initPathSpecified = false;
+  let force = false;
   let source: ReadInput['source'];
   let count: number | undefined;
   let mode: ReadMode | undefined;
@@ -115,6 +123,29 @@ function parseArgs(args: readonly string[]): ParsedArgs {
     }
     if (arg === '--version' || arg === '-V') {
       version = true;
+      continue;
+    }
+    if (arg === '--force') {
+      if (force) return { json, help, version, fileSpecified, error: '--force may be specified only once' };
+      force = true;
+      continue;
+    }
+
+    const inlinePath = inlineOptionValue(arg, '--path');
+    if (inlinePath !== undefined) {
+      if (inlinePath.length === 0) return { json, help, version, fileSpecified, error: '--path requires a value' };
+      if (initPathSpecified) return { json, help, version, fileSpecified, error: '--path may be specified only once' };
+      initPath = inlinePath;
+      initPathSpecified = true;
+      continue;
+    }
+    if (arg === '--path') {
+      const result = optionValue(args, index, '--path');
+      if ('error' in result) return { json, help, version, fileSpecified, error: result.error };
+      if (initPathSpecified) return { json, help, version, fileSpecified, error: '--path may be specified only once' };
+      initPath = result.value;
+      initPathSpecified = true;
+      index = result.nextIndex;
       continue;
     }
 
@@ -202,15 +233,15 @@ function parseArgs(args: readonly string[]): ParsedArgs {
   }
 
   const command = positional[0];
-  if (command !== 'targets' && command !== 'status' && command !== 'doctor' && command !== 'send' && command !== 'read') {
-    return { json, help, version, fileSpecified, error: 'a command is required: targets, status, doctor, send, or read' };
+  if (command !== 'targets' && command !== 'status' && command !== 'doctor' && command !== 'send' && command !== 'read' && command !== 'init') {
+    return { json, help, version, fileSpecified, error: 'a command is required: init, targets, status, doctor, send, or read' };
   }
 
   const target = positional[1];
   if ((command === 'status' || command === 'send' || command === 'read') && target === undefined) {
     return { json, help, version, fileSpecified, error: `${command} requires a target alias` };
   }
-  if ((command === 'targets' || command === 'doctor') && target !== undefined) {
+  if ((command === 'targets' || command === 'doctor' || command === 'init') && target !== undefined) {
     return { json, help, version, fileSpecified, error: `${command} does not accept a target alias` };
   }
 
@@ -233,6 +264,9 @@ function parseArgs(args: readonly string[]): ParsedArgs {
   if (command !== 'read' && command !== 'send' && (fileSpecified || source !== undefined || count !== undefined || mode !== undefined)) {
     return { json, help, version, fileSpecified, error: `${command} does not accept read/input options` };
   }
+  if (command !== 'init' && (initPathSpecified || force)) {
+    return { json, help, version, fileSpecified, error: `${command} accepts --path and --force only with init` };
+  }
   if (command !== 'send' && command !== 'read' && positional.length > 2) {
     return { json, help, version, fileSpecified, error: `unexpected argument: ${positional[2]}` };
   }
@@ -243,6 +277,9 @@ function parseArgs(args: readonly string[]): ParsedArgs {
     ...(positional[2] === undefined ? {} : { message: positional[2] }),
     ...(file === undefined ? {} : { file }),
     fileSpecified,
+    ...(initPath === undefined ? {} : { initPath }),
+    initPathSpecified,
+    force,
     ...(source === undefined ? {} : { source }),
     ...(count === undefined ? {} : { count }),
     ...(mode === undefined ? {} : { mode }),
@@ -448,6 +485,21 @@ export async function main(
       console.error('Run "firstmate-gateway --help" for usage.');
     }
     return 2;
+  }
+
+  if (parsed.command === 'init') {
+    try {
+      const result = await initializeConfig(parsed.initPath, parsed.force === undefined ? {} : { force: parsed.force });
+      if (parsed.json) {
+        printJson(result);
+      } else {
+        console.log(`Created configuration template at ${result.path}`);
+      }
+      return 0;
+    } catch (error) {
+      printError(error, parsed.json, requestId);
+      return 1;
+    }
   }
 
   const gateway = dependencies.gateway ?? new Gateway();

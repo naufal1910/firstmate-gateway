@@ -82,6 +82,10 @@ class RequestBoundaryError extends Error {
   }
 }
 
+function externalResource(remote: EnabledRemoteConfig): string {
+  return remote.externalResource ?? remote.resource;
+}
+
 function toRawConfig(config: GatewayConfig): unknown {
   const targets = Object.fromEntries(Object.entries(config.targets).map(([alias, target]) => [alias, {
     herdr_session: target.herdrSession,
@@ -98,6 +102,11 @@ function toRawConfig(config: GatewayConfig): unknown {
       port: config.remote.port,
       allow_public_bind: config.remote.allowPublicBind,
       resource: config.remote.resource,
+      ...(config.remote.externalResource === undefined || config.remote.externalResource === config.remote.resource ? {} : {
+        // The tunnel service rewrites this private resource URL in its
+        // connector-facing metadata; keep the local listener identity here.
+        external_resource: config.remote.externalResource,
+      }),
       authorization_servers: [...config.remote.authorizationServers],
       allowed_hosts: [...config.remote.allowedHosts],
       allowed_origins: [...config.remote.allowedOrigins],
@@ -386,7 +395,7 @@ function createRemoteHttpServer(
         principal = await authenticateWithinDeadline(
           authorization,
           verifier,
-          config.remote.resource,
+          externalResource(config.remote),
           principalResolver,
         );
       } catch {
@@ -409,7 +418,7 @@ function createRemoteHttpServer(
         clientId: principal.id,
         scopes: [...principal.scopes],
         expiresAt: Math.floor(Date.now() / 1000) + 60,
-        resource: new URL(config.remote.resource),
+        resource: new URL(externalResource(config.remote)),
       };
       await nodeHandler(
         request as unknown as NodeIncomingMessageLike,

@@ -451,6 +451,15 @@ Gateway Core
 Herdr
 ```
 
+The private Streamable HTTP listener resource is `/mcp`. A transport such as
+OpenAI Secure MCP Tunnel may rewrite the connector-facing protected-resource
+identity to an external `/v1/mcp/tunnel_<id>` URL. The configuration may carry
+that external identity separately; the Gateway keeps publishing metadata for the
+private `/mcp` resource and validates token resource claims against exactly the
+configured external identity. It must never accept either identity as a fallback.
+The external identity is restricted to an HTTPS tunnel URL with the exact
+`tunnel_<32 lowercase hexadecimal characters>` path form.
+
 Suggested scopes:
 
 ```text

@@ -11,3 +11,5 @@ Read in this order:
 5. [`00-concept.md`](./00-concept.md) — concise concept and original scope rationale.
 
 The root [`AGENTS.md`](../AGENTS.md) contains execution rules for agents and contributors, including the currently authorized implementation milestone.
+
+For operating an installed package, see the [operator guide](./operator-guide.md). It is operational documentation, not a replacement for the approved product and technical source-of-truth documents above.
