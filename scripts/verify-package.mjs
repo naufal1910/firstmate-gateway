@@ -52,6 +52,7 @@ try {
   assert.equal(existsSync(join(installedRoot, 'docs', 'operator-guide.md')), true, 'packed package must contain the operator guide');
   assert.equal(existsSync(join(installedRoot, 'deploy', 'systemd', 'firstmate-gateway-remote.service')), true, 'packed package must contain the Gateway service template');
   assert.equal(existsSync(join(installedRoot, 'deploy', 'systemd', 'firstmate-gateway-tunnel.service')), true, 'packed package must contain the tunnel service template');
+  assert.equal(existsSync(join(installedRoot, 'scripts', 'verify-service-dependency.mjs')), true, 'packed package must contain isolated service evidence');
   assert.equal(existsSync(join(installedRoot, 'config', 'local.yaml')), false, 'packed package must not contain local configuration');
   assert.equal(existsSync(join(installedRoot, '.env')), false, 'packed package must not contain environment files');
   assert.equal(existsSync(join(installedRoot, 'src')), false, 'packed package must not contain TypeScript sources');
@@ -89,6 +90,13 @@ try {
   assert.equal(readlinkSync(join(runtimeRoot, 'active')), `versions/${deploymentResult.runtimeName}`);
   assert.equal(existsSync(join(runtimeRoot, 'active', 'node_modules', '.bin', 'firstmate-gateway-remote')), true);
   assert.equal(statSync(join(runtimeRoot, 'versions', deploymentResult.runtimeName)).mode & 0o222, 0, 'installed runtime must be immutable');
+  const activeRemoteBin = join(runtimeRoot, 'active', 'node_modules', '.bin', 'firstmate-gateway-remote');
+  assert.equal(statSync(activeRemoteBin).mode & 0o777, 0o555, 'installed executable must retain execute bits without write bits');
+  const activeRemoteVersion = execFileSync(activeRemoteBin, ['--version'], {
+    encoding: 'utf8',
+    cwd: consumer,
+  }).trim();
+  assert.equal(activeRemoteVersion, packageJson.version, 'immutable active runtime remote entry point must execute');
   // Installed versions are read-only by design; make the temporary fixture removable.
   execFileSync('chmod', ['-R', 'u+w', runtimeRoot]);
 

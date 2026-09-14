@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -87,7 +87,8 @@ async function makeRuntimeImmutable(path: string): Promise<void> {
     if (entry.isDirectory()) {
       await makeRuntimeImmutable(entryPath);
     } else if (!entry.isSymbolicLink()) {
-      await chmod(entryPath, 0o444);
+      const mode = (await stat(entryPath)).mode;
+      await chmod(entryPath, mode & 0o111 ? 0o555 : 0o444);
     }
   }
   await chmod(path, 0o555);

@@ -468,8 +468,9 @@ supervisor so there is one owner of restart/backoff. Keep its runtime API key as
 tunnel-client-supported `env:NAME` or `file:/path` reference in that profile, never in
 a unit or command line.
 
-The tunnel unit has `Requires=` and `After=` on the Gateway unit, so it is not started
-against an absent local endpoint. Both templates use `Restart=on-failure` with a
+The tunnel unit has `Wants=` and `After=` on the Gateway unit, so it is ordered after
+Gateway startup without being deactivated by a transient Gateway failure. Both
+templates use `Restart=on-failure` with a
 bounded start burst and a fixed delay, rather than an unbounded restart loop. Logs go
 to the user journal; the Gateway does not log prompts, raw output, semantic content,
 bearer tokens, or secret references.

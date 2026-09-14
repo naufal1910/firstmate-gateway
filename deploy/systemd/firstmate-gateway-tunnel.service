@@ -2,7 +2,7 @@
 # The tunnel profile is machine-local and must refer to secrets with env:/file:.
 [Unit]
 Description=OpenAI Secure MCP Tunnel client for FirstMate Gateway
-Requires=firstmate-gateway-remote.service
+Wants=firstmate-gateway-remote.service
 After=firstmate-gateway-remote.service network-online.target
 StartLimitIntervalSec=60s
 StartLimitBurst=5

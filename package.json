@@ -34,6 +34,7 @@
     "docs/operator-guide.md",
     "deploy/systemd/*.service",
     "deploy/systemd/README.md",
+    "scripts/verify-service-dependency.mjs",
     "README.md",
     "LICENSE"
   ],

@@ -11,6 +11,12 @@ client's `env:NAME` or `file:/path` secret-reference syntax; do not put keys in 
 or command line.
 
 Both services use bounded `Restart=on-failure` policies. The tunnel has an explicit
-`Requires`/`After` dependency on the Gateway so it is not started against an absent
-local endpoint. Stopping either unit does not invoke Gateway tools and cannot replay a
+`Wants`/`After` startup relationship with the Gateway so it is ordered after the
+Gateway without being deactivated when a transient Gateway failure occurs. Stopping either unit does not invoke Gateway tools and cannot replay a
 prompt.
+
+The repository's isolated dependency check can be run from a reviewed checkout with
+`node scripts/verify-service-dependency.mjs`. It creates uniquely named transient
+user units, kills only the test Gateway process, verifies its restart while the test
+tunnel remains active, and removes those test units. It never starts the production
+units.
