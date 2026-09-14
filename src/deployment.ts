@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, mkdtemp, readdir, readFile, readlink, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -94,6 +94,25 @@ async function makeRuntimeImmutable(path: string): Promise<void> {
   await chmod(path, 0o555);
 }
 
+async function makeTreeRemovable(path: string): Promise<void> {
+  const entry = await lstat(path);
+  if (entry.isDirectory()) {
+    for (const child of await readdir(path)) await makeTreeRemovable(join(path, child));
+    await chmod(path, 0o700);
+  } else if (!entry.isSymbolicLink()) {
+    await chmod(path, 0o600);
+  }
+}
+
+async function cleanupStaging(path: string): Promise<void> {
+  try {
+    await makeTreeRemovable(path);
+    await rm(path, { recursive: true, force: true });
+  } catch (error) {
+    throw new DeploymentError('unable to clean deployment staging', { cause: error });
+  }
+}
+
 async function sha256File(path: string): Promise<string> {
   const contents = await readFile(path);
   return createHash('sha256').update(contents).digest('hex');
@@ -171,29 +190,41 @@ export async function installPackedArtifact(options: InstallRuntimeOptions): Pro
     throw new DeploymentError('packed artifact is not available', { cause: error });
   }
   if (!artifactEntry.isFile()) throw new DeploymentError('packed artifact must be a regular file');
-  if (await sha256File(artifact) !== expectedSha256) throw new DeploymentError('packed artifact sha256 does not match the expected digest');
 
   const layout = runtimeLayout(options.root);
   await ensurePrivateDirectory(layout.root);
   await ensurePrivateDirectory(layout.versions);
-  const staging = await mkdtemp(join(layout.versions, '.staging-'));
+  const staging = await mkdtemp(join(layout.root, '.staging-'));
+  await chmod(staging, 0o700);
+  const stagedArtifact = join(staging, 'candidate.tgz');
+  const runtimeStaging = join(staging, 'runtime');
+  let createdRuntimeDirectory: string | undefined;
   try {
+    // Copy first, then hash and install only this private snapshot. The original
+    // path may be replaced after this point without changing the installed bytes.
+    await copyFile(artifact, stagedArtifact);
+    await chmod(stagedArtifact, 0o600);
+    if (await sha256File(stagedArtifact) !== expectedSha256) {
+      throw new DeploymentError('packed artifact sha256 does not match the expected digest');
+    }
+    await mkdir(runtimeStaging, { mode: 0o700 });
+
     const npmPath = options.npmPath ?? 'npm';
     try {
       await execFileAsync(npmPath, [
         'install',
-        '--prefix', staging,
+        '--prefix', runtimeStaging,
         '--ignore-scripts',
         '--no-audit',
         '--no-fund',
         '--no-package-lock',
-        artifact,
+        stagedArtifact,
       ], { cwd: layout.root, maxBuffer: INSTALL_MAX_BUFFER, windowsHide: true });
     } catch (error) {
       throw new DeploymentError('npm could not install the verified packed artifact', { cause: error });
     }
 
-    const packageRoot = join(staging, 'node_modules', PACKAGE_NAME);
+    const packageRoot = join(runtimeStaging, 'node_modules', PACKAGE_NAME);
     const metadata = await readPackageMetadata(packageRoot);
     const runtimeName = validateRuntimeName(`${metadata.version}-${expectedSha256.slice(0, 12)}`);
     const runtimeDirectory = join(layout.versions, runtimeName);
@@ -208,14 +239,20 @@ export async function installPackedArtifact(options: InstallRuntimeOptions): Pro
       if (installed.name !== PACKAGE_NAME || installed.version !== metadata.version || marker.trim() !== expectedSha256) {
         throw new DeploymentError('an existing runtime directory does not match the verified artifact');
       }
-      await rm(staging, { recursive: true, force: true });
     } else {
-      await writeFile(join(staging, '.artifact-sha256'), `${expectedSha256}\n`, { mode: 0o600 });
-      await makeRuntimeImmutable(staging);
-      await rename(staging, runtimeDirectory);
+      await writeFile(join(runtimeStaging, '.artifact-sha256'), `${expectedSha256}\n`, { mode: 0o600 });
+      // Rename while npm's directory tree is writable, then freeze the retained
+      // version in its final location.
+      await chmod(staging, 0o700);
+      await chmod(layout.versions, 0o700);
+      await rename(runtimeStaging, runtimeDirectory);
+      createdRuntimeDirectory = runtimeDirectory;
+      await makeRuntimeImmutable(runtimeDirectory);
     }
 
     const previousRuntimeName = await atomicallyActivate(layout, runtimeName);
+    createdRuntimeDirectory = undefined;
+    await cleanupStaging(staging);
     return Object.freeze({
       packageName: metadata.name,
       version: metadata.version,
@@ -226,7 +263,21 @@ export async function installPackedArtifact(options: InstallRuntimeOptions): Pro
       ...(previousRuntimeName === undefined ? {} : { previousRuntimeName }),
     });
   } catch (error) {
-    await rm(staging, { recursive: true, force: true });
+    let cleanupError: unknown;
+    if (createdRuntimeDirectory !== undefined) {
+      try {
+        await makeTreeRemovable(createdRuntimeDirectory);
+        await rm(createdRuntimeDirectory, { recursive: true, force: true });
+      } catch (runtimeError) {
+        cleanupError = runtimeError;
+      }
+    }
+    try {
+      await cleanupStaging(staging);
+    } catch (stagingError) {
+      cleanupError = stagingError;
+    }
+    if (cleanupError !== undefined) throw cleanupError;
     if (error instanceof DeploymentError) throw error;
     throw new DeploymentError('packed artifact installation failed', { cause: error });
   }
