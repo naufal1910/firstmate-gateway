@@ -15,8 +15,10 @@ targets:
   #   agent: pi
 
 # Remote Streamable HTTP is opt-in. Enabling it also requires explicit bind,
-# HTTPS resource, authorization-server issuer, Host/Origin, authorization policy, and an injected OAuth/OIDC
-# access-token verifier; this example contains no token or credential. For OpenAI Secure MCP Tunnel v0.0.14,
+# HTTPS resource, authorization-server issuer, Host/Origin, and authorization policy.
+# `firstmate-gateway-remote` requires one https://<tenant>.<region>.auth0.com/ issuer
+# and an explicit 127.0.0.1 or ::1 bind; it discovers/preloads Auth0 JWKS before listening.
+# This example contains no token or credential. For OpenAI Secure MCP Tunnel v0.0.14,
 # keep resource bound to the private /mcp identity and add external_resource as the tunnel's
 # https://<tunnel-origin>/v1/mcp/tunnel_<32-lowercase-hexadecimal-characters> resource identity.
 remote:

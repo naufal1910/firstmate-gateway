@@ -10,8 +10,9 @@ operation.
 - Node.js 24 LTS or newer;
 - a supported Herdr installation with its local structured socket API available;
 - one or more FirstMate instances running under Herdr; and
-- for remote MCP, an operational OAuth/OIDC resource-server verifier supplied by the
-  embedding host. The package does not ship a test verifier or an identity provider.
+- for remote MCP, either an Auth0 tenant for the packaged loopback runner or an
+  operational OAuth/OIDC resource-server verifier supplied through the library seam.
+  The package never ships a test verifier, identity provider, client secret, or token.
 
 The configured Herdr session and FirstMate home are used to resolve a live target on
 every operation. A pane ID is never configuration identity.
@@ -182,7 +183,26 @@ listener and does not manage Herdr or FirstMate lifecycle state.
 ## Secured remote MCP
 
 Remote Streamable HTTP is disabled unless the validated configuration says otherwise.
-A remote host must supply an operational OAuth/OIDC verifier to the library API:
+The packaged Auth0 runner is the smallest operational path for a private tunnel:
+
+```sh
+FIRSTMATE_GATEWAY_CONFIG=/protected/path/to/local.yaml firstmate-gateway-remote
+```
+
+It accepts no Auth0 client secret. For the approved deployment, set
+`remote.authorization_servers` to `https://firstmate-gateway.jp.auth0.com/`; the
+runner requires exactly one Auth0 tenant issuer, an explicit `127.0.0.1` or `::1` bind, and the exact
+API identifier in `remote.external_resource` (or `remote.resource` without a tunnel).
+Before opening the loopback listener it retrieves OIDC discovery metadata, requires
+the discovered issuer to match exactly, requires Auth0's same-origin HTTPS JWKS URL,
+and preloads a usable RS256 public signing key. Missing, malformed, unreachable, or
+invalid metadata stops startup. JWT requests then require an RS256 signature, exact
+issuer and audience, expiration and standard time validity, and a stable verified
+`client_id`/`azp` claim. The verified client identifier selects the matching principal
+entry in local configuration.
+
+For another OAuth/OIDC resource server, an embedding host can still supply its own
+operational verifier through the provider-neutral library API:
 
 ```ts
 import { startRemoteMcp } from 'firstmate-gateway';
@@ -190,11 +210,10 @@ import { startRemoteMcp } from 'firstmate-gateway';
 await startRemoteMcp({ tokenVerifier: verifier });
 ```
 
-The embedding host is responsible for TLS termination and for supplying the verifier
-and, when needed, an OIDC-aware principal resolver. Configuration alone is not an
-authentication implementation. The remote listener publishes protected-resource
-metadata at the path-aware `/.well-known/oauth-protected-resource/mcp` endpoint and
-keeps the private Gateway resource at `/mcp`.
+The embedding host is responsible for TLS termination and, when needed, an OIDC-aware
+principal resolver. The remote listener publishes protected-resource metadata at the
+path-aware `/.well-known/oauth-protected-resource/mcp` endpoint and keeps the private
+Gateway resource at `/mcp`.
 
 A minimal enabled reverse-proxy configuration must include all of the following.
 This example assumes the trusted proxy forwards the external hostname
@@ -228,19 +247,24 @@ remote:
   resource: https://private-gateway.example.com/mcp
   external_resource: https://<tunnel-origin>/v1/mcp/tunnel_<32-lowercase-hexadecimal-characters>
   authorization_servers:
-    - https://identity.example.com/tenant
+    - https://your-tenant.region.auth0.com/
   allowed_hosts: [127.0.0.1]
   allowed_origins: []
   authorization:
     principals:
-      chatgpt-workspace-client:
+      replace-with-verified-auth0-client-id:
         targets: [firstmate2]
 ```
 
+Configure the Auth0 API to use the exact external resource as its identifier, RS256,
+and only the three Gateway scopes listed below. Request `offline_access` separately
+when refresh tokens are required; it is not a Gateway capability. Keep the ChatGPT
+OAuth client ID/secret and every generated token outside Gateway YAML and source.
 Use a private loopback bind behind either a trusted TLS reverse proxy or a private
 tunnel, and choose the matching configuration above.
-Non-loopback binding requires the separate `allow_public_bind: true` opt-in; it is
-never inferred from a resource URL. Bearer authentication, exact token-resource
+The lower-level provider-neutral API requires the separate `allow_public_bind: true`
+opt-in for any non-loopback bind; the packaged Auth0 runner refuses non-loopback
+binds regardless. Public binding is never inferred from a resource URL. Bearer authentication, exact token-resource
 matching, expiration, scopes, principal policy, target allowlists, Host/Origin
 allowlists, request bounds, and timeouts are enforced before Gateway invocation.
 
@@ -290,9 +314,19 @@ path, and do not use a tunnel ID as a FirstMate target identity.
 In the ChatGPT workspace's supported app/connector settings, create or configure
 the connection with `Connection: Tunnel`. Select the intended tunnel from the
 available-tunnels list, or paste the `tunnel_id` when the tunnel is not listed.
-Save the connector and complete the configured authorization flow. Do not paste
-the private Gateway URL or the underlying `/v1/mcp/<tunnel_id>` transport URL into
-the ChatGPT UI; those are used by the tunnel service and local configuration.
+For the Auth0 third-party application, enable and assign the intended domain-level
+login connection; creating the application without an allowed login connection is
+not sufficient for OAuth login. Configure Auth0 with the exact per-app callback URL
+shown by ChatGPT. ChatGPT uses a generated callback under
+`https://chatgpt.com/connector/oauth/`, not the bare `/connector/oauth` path; do not
+copy the generated per-app identifier into source, docs, or issue comments.
+
+For local loopback OAuth discovery, set `HARPOON_ALLOW_PLAINTEXT_HTTP=true` only in
+the trusted local Harpoon process environment. This flag is for the plaintext local
+loopback hop only; it is not permission to expose OAuth discovery or the Gateway
+publicly. Save the connector and complete the configured authorization flow. Do not
+paste the private Gateway URL or the underlying `/v1/mcp/<tunnel_id>` transport URL
+into the ChatGPT UI; those are used by the tunnel service and local configuration.
 Product UI labels, workspace policy, and write-capable custom-MCP availability vary
 by plan. Verify in this order:
 
@@ -313,7 +347,7 @@ retry a prompt after an uncertain response; inspect the target separately.
 | Session not found or stopped | Start the named Herdr session and confirm the configured session name. |
 | Target not found or ambiguous | Confirm the FirstMate home and agent kind; the resolver requires exactly one live match. |
 | Protocol/socket check fails | Upgrade or repair Herdr only after reviewing the compatibility diagnostic; no terminal fallback is used. |
-| Remote startup refuses to listen | Keep remote disabled until bind, HTTPS resource, issuer, host/origin policy, authorization policy, and an operational verifier are present. |
+| Remote startup refuses to listen | Keep remote disabled until bind, HTTPS resource, issuer, host/origin policy, authorization policy, and an operational verifier are present. For `firstmate-gateway-remote`, require one exact Auth0 tenant issuer and a loopback bind; verify discovery/JWKS reachability without bypassing validation. |
 | Host or Origin is rejected | Confirm the request reaches the expected private listener host, then set `allowed_hosts` and `allowed_origins` to the exact hostnames observed by that listener; omit schemes, ports, and wildcards. |
 | Remote request is `401` | Check the issuer flow and the exact token resource/audience; for Secure MCP Tunnel check `external_resource`. |
 | Remote request is `403` | Check the verified principal's scope and configured target allowlist. |

@@ -472,8 +472,8 @@ function closeServer(server: Server): Promise<void> {
 /**
  * Starts the secured Streamable HTTP MCP endpoint only when validated config
  * explicitly enables it and an operational resource-server verifier is
- * supplied. No verifier fixture or provider-specific authentication ships in
- * production code.
+ * supplied. Test verifier fixtures never ship through this production path;
+ * the Auth0 runner injects its concrete verifier through this same seam.
  */
 export async function startRemoteMcp(options: StartRemoteMcpOptions = {}): Promise<RemoteMcpServer> {
   const loaded = options.config ?? await loadConfigFile(options.configPath);

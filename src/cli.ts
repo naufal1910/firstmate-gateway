@@ -21,7 +21,7 @@ import {
   type TargetSummary,
   type DoctorReport,
 } from './gateway.js';
-import { VERSION } from './index.js';
+import { VERSION } from './version.js';
 import { GatewayError, withRequestId, type GatewayErrorPayload } from './errors.js';
 import { initializeConfig } from './init.js';
 
