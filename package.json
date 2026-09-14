@@ -35,6 +35,7 @@
     "deploy/systemd/*.service",
     "deploy/systemd/README.md",
     "scripts/verify-service-dependency.mjs",
+    "scripts/verify-node24-systemd.mjs",
     "README.md",
     "LICENSE"
   ],

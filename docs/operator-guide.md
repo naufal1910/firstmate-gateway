@@ -398,6 +398,7 @@ then point the user service at its immutable active version:
 ~/.local/share/firstmate-gateway/
   active -> versions/<package-version>-<artifact-sha256-prefix>/
   versions/<package-version>-<artifact-sha256-prefix>/
+  node/current -> node/versions/node-v<24-version>-linux-x64/
 ```
 
 `active` is replaced with an atomic symlink update. Every installed version remains in
@@ -437,7 +438,11 @@ node dist/deploy.js \
 ```
 
 The installer verifies the digest before installing, validates the package name and
-version, creates a versioned directory, and atomically switches `active`. It never
+version, creates a versioned directory, and atomically switches `active`. Install an
+official Node 24 LTS archive separately only after checking its matching official
+checksum; extract it into the versioned `node/versions` layout and switch `node/current`
+atomically after verification. Keep prior Node versions for rollback. The service
+PATH selects `node/current` first. The Gateway installer never
 changes the Gateway YAML or tunnel profile and never starts or restarts a process.
 The same operation is available from an installed package as
 `firstmate-gateway-install`.
@@ -458,7 +463,10 @@ systemd-analyze --user verify \
 ```
 
 The Gateway unit executes the packaged `firstmate-gateway-remote` bin through the
-`active` pointer. It supplies only the path to the protected YAML; the Auth0 verifier,
+`active` pointer. Its `PATH` begins with the stable `node/current/bin` directory, so
+the bin's `#!/usr/bin/env node` interpreter is deterministic without changing any
+interactive or tool-session Node installation. It supplies only the path to the
+protected YAML; the Auth0 verifier,
 exact resource check, scopes, target allowlists, diagnostics gate, and loopback bind
 remain in the package. The tunnel unit uses the official `tunnel-client run` command
 and a local profile. Current tunnel-client guidance also offers

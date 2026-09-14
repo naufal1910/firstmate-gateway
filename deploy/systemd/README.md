@@ -19,4 +19,5 @@ The repository's isolated dependency check can be run from a reviewed checkout w
 `node scripts/verify-service-dependency.mjs`. It creates uniquely named transient
 user units, kills only the test Gateway process, verifies its restart while the test
 tunnel remains active, and removes those test units. It never starts the production
-units.
+units. For the complete Node 24 plus unit verification, run
+`PATH="$HOME/.local/share/firstmate-gateway/node/current/bin:$PATH" node scripts/verify-node24-systemd.mjs`.

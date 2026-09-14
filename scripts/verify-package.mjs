@@ -53,6 +53,7 @@ try {
   assert.equal(existsSync(join(installedRoot, 'deploy', 'systemd', 'firstmate-gateway-remote.service')), true, 'packed package must contain the Gateway service template');
   assert.equal(existsSync(join(installedRoot, 'deploy', 'systemd', 'firstmate-gateway-tunnel.service')), true, 'packed package must contain the tunnel service template');
   assert.equal(existsSync(join(installedRoot, 'scripts', 'verify-service-dependency.mjs')), true, 'packed package must contain isolated service evidence');
+  assert.equal(existsSync(join(installedRoot, 'scripts', 'verify-node24-systemd.mjs')), true, 'packed package must contain Node runtime evidence');
   assert.equal(existsSync(join(installedRoot, 'config', 'local.yaml')), false, 'packed package must not contain local configuration');
   assert.equal(existsSync(join(installedRoot, '.env')), false, 'packed package must not contain environment files');
   assert.equal(existsSync(join(installedRoot, 'src')), false, 'packed package must not contain TypeScript sources');

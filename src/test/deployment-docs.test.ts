@@ -14,6 +14,7 @@ async function text(path: string): Promise<string> {
 test('committed service templates are generic and preserve the security boundary', async () => {
   const gateway = await text('deploy/systemd/firstmate-gateway-remote.service');
   const tunnel = await text('deploy/systemd/firstmate-gateway-tunnel.service');
+  assert.match(gateway, /PATH=%h\/\.local\/share\/firstmate-gateway\/node\/current\/bin:/);
   assert.match(gateway, /active\/node_modules\/\.bin\/firstmate-gateway-remote/);
   assert.match(gateway, /Restart=on-failure/);
   assert.match(gateway, /ProtectHome=read-only/);
