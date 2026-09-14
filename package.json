@@ -15,7 +15,8 @@
   "bin": {
     "firstmate-gateway": "./dist/cli.js",
     "firstmate-gateway-mcp": "./dist/mcp-stdio.js",
-    "firstmate-gateway-remote": "./dist/mcp-http-auth0.js"
+    "firstmate-gateway-remote": "./dist/mcp-http-auth0.js",
+    "firstmate-gateway-install": "./dist/deploy.js"
   },
   "exports": {
     ".": {
@@ -31,6 +32,8 @@
     "dist/herdr",
     "config/example.yaml",
     "docs/operator-guide.md",
+    "deploy/systemd/*.service",
+    "deploy/systemd/README.md",
     "README.md",
     "LICENSE"
   ],

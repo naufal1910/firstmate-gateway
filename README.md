@@ -2,7 +2,7 @@
 
 A safe gateway for connecting ChatGPT and other clients to FirstMate instances running under Herdr.
 
-> **Status:** Phase 6 implementation work covers the safe tunnel-compatible path, operator documentation, and dry-run release automation. A live ChatGPT workspace/plan verification remains environment-dependent and is not claimed unless explicitly run against a connected workspace.
+> **Status:** Phase 7 adds verified-artifact installation, retained versioned runtimes, atomic rollback, and generic systemd user-service templates. A live supervised cutover remains a separately gated operational action.
 
 ## What It Is
 
@@ -87,7 +87,7 @@ version: 1
 
 targets:
   firstmate2:
-    herdr_session: firstmate-b
+    herdr_session: replace-with-local-session
     firstmate_home: /absolute/path/to/firstmate2
     agent: pi
 ```
@@ -138,7 +138,7 @@ remote:
 ```
 
 For the approved Auth0 deployment, set `remote.authorization_servers` to
-`https://firstmate-gateway.jp.auth0.com/`. Put the exact API identifier and verified
+`https://your-tenant.region.auth0.com/`. Put the exact API identifier and verified
 principal only in protected local configuration, then run:
 
 ```sh
@@ -186,7 +186,8 @@ The implemented milestone includes:
 - **Tasks 10–11 / Checkpoint D:** client-neutral MCP tools and local stdio transport;
 - **Tasks 12–13 / Checkpoint E:** opt-in Streamable HTTP, provider-neutral bearer verification, independent scope authorization, and per-principal target allowlists;
 - **Task 14 compatibility path:** Secure MCP Tunnel v0.0.14 external resource/audience handling without weakening the private `/mcp` identity;
-- **Tasks 15–16 / Checkpoint F preparation:** operator documentation, safe `init`, packed-install verification, and CI/release automation with npm trusted publishing.
+- **Tasks 15–16 / Checkpoint F preparation:** operator documentation, safe `init`, packed-install verification, and CI/release automation with npm trusted publishing;
+- **Tasks 17–19 / Checkpoint G preparation:** verified packed-artifact deployment outside worktrees, atomic retained-runtime rollback, generic systemd user-service templates, and read-only recovery procedures.
 
 A live ChatGPT workspace test and credentialed Auth0/tunnel run remain external
 operational evidence. The Gateway does not claim public plugin hosting or a specific

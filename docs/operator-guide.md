@@ -117,8 +117,8 @@ version: 1
 
 targets:
   firstmate2:
-    herdr_session: firstmate-b
-    firstmate_home: /srv/firstmate2
+    herdr_session: replace-with-local-session
+    firstmate_home: /absolute/path/to/firstmate2
     agent: pi
 
   firstmate3:
@@ -190,7 +190,7 @@ FIRSTMATE_GATEWAY_CONFIG=/protected/path/to/local.yaml firstmate-gateway-remote
 ```
 
 It accepts no Auth0 client secret. For the approved deployment, set
-`remote.authorization_servers` to `https://firstmate-gateway.jp.auth0.com/`; the
+`remote.authorization_servers` to `https://your-tenant.region.auth0.com/`; the
 runner requires exactly one Auth0 tenant issuer, an explicit `127.0.0.1` or `::1` bind, and the exact
 API identifier in `remote.external_resource` (or `remote.resource` without a tunnel).
 Before opening the loopback listener it retrieves OIDC discovery metadata, requires
@@ -231,7 +231,7 @@ remote:
   allowed_origins: []
   authorization:
     principals:
-      chatgpt-workspace-client:
+      replace-with-client-principal:
         targets: [firstmate2]
 ```
 
@@ -387,3 +387,245 @@ operator evidence have been reviewed.
   every operation.
 - Rotate or revoke credentials through the identity/tunnel providers, not through
   Gateway configuration.
+
+## Stable supervised deployment (Phase 7)
+
+A live Gateway must not run from a pull-request checkout, disposable worktree, or
+foreground shell. Install a verified packed artifact into a user-local runtime root,
+then point the user service at its immutable active version:
+
+```text
+~/.local/share/firstmate-gateway/
+  active -> versions/<package-version>-<artifact-sha256-prefix>/
+  versions/<package-version>-<artifact-sha256-prefix>/
+```
+
+`active` is replaced with an atomic symlink update. Every installed version remains in
+`versions`; an upgrade never removes the previously working runtime. The artifact
+SHA-256 is recorded beside the installed package for later inspection. The runtime
+root and its version directories are private to the user. Configuration is separate:
+
+```text
+~/.config/firstmate-gateway/local.yaml       # mode 600; not in Git
+~/.config/tunnel-client/firstmate-gateway.yaml # mode 600 where the client requires it
+```
+
+### Install a verified local artifact
+
+Do not install a live service from an unreviewed checkout. From a reviewed checkout,
+build and pack without lifecycle scripts, then verify the archive using an independent
+trusted digest:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm check
+pnpm build
+mkdir -p "$HOME/.cache/firstmate-gateway"
+npm pack --ignore-scripts --pack-destination "$HOME/.cache/firstmate-gateway"
+sha256sum "$HOME/.cache/firstmate-gateway/firstmate-gateway-<version>.tgz"
+```
+
+Run the committed installer with the exact digest you verified. The artifact path is
+required to be absolute; npm is invoked without a shell and install scripts are
+ignored:
+
+```sh
+node dist/deploy.js \
+  --artifact "$HOME/.cache/firstmate-gateway/firstmate-gateway-<version>.tgz" \
+  --sha256 <64-lowercase-hex-digest> \
+  --root "$HOME/.local/share/firstmate-gateway"
+```
+
+The installer verifies the digest before installing, validates the package name and
+version, creates a versioned directory, and atomically switches `active`. It never
+changes the Gateway YAML or tunnel profile and never starts or restarts a process.
+The same operation is available from an installed package as
+`firstmate-gateway-install`.
+
+### Install and inspect user units
+
+The generic examples are in [`deploy/systemd/`](../deploy/systemd/). Copy them to the
+user unit directory only after reviewing local paths and the installed tunnel-client
+location. Do not commit the copies:
+
+```sh
+mkdir -p "$HOME/.config/systemd/user"
+cp deploy/systemd/firstmate-gateway-remote.service "$HOME/.config/systemd/user/"
+cp deploy/systemd/firstmate-gateway-tunnel.service "$HOME/.config/systemd/user/"
+systemd-analyze --user verify \
+  "$HOME/.config/systemd/user/firstmate-gateway-remote.service" \
+  "$HOME/.config/systemd/user/firstmate-gateway-tunnel.service"
+```
+
+The Gateway unit executes the packaged `firstmate-gateway-remote` bin through the
+`active` pointer. It supplies only the path to the protected YAML; the Auth0 verifier,
+exact resource check, scopes, target allowlists, diagnostics gate, and loopback bind
+remain in the package. The tunnel unit uses the official `tunnel-client run` command
+and a local profile. Current tunnel-client guidance also offers
+`runtimes connect` for its own managed local runtime; do not use `nohup` or `disown`.
+This template chooses the supported `run` command under the host's systemd user
+supervisor so there is one owner of restart/backoff. Keep its runtime API key as the
+tunnel-client-supported `env:NAME` or `file:/path` reference in that profile, never in
+a unit or command line.
+
+The tunnel unit has `Requires=` and `After=` on the Gateway unit, so it is not started
+against an absent local endpoint. Both templates use `Restart=on-failure` with a
+bounded start burst and a fixed delay, rather than an unbounded restart loop. Logs go
+to the user journal; the Gateway does not log prompts, raw output, semantic content,
+bearer tokens, or secret references.
+
+Verify that the host supports user services before any enable/start operation:
+
+```sh
+systemctl --user --version
+systemctl --user is-system-running
+loginctl show-user "$USER" -p Linger
+```
+
+If reboot persistence is required and `Linger=no`, stop and obtain the required admin
+approval for `loginctl enable-linger "$USER"`; do not apply it silently. A user manager
+without linger can still be used for a current login session, but it will not guarantee
+startup after logout/reboot.
+
+### Enable, start, status, logs, stop, and restart
+
+These commands are operational and are intentionally shown for a controlled cutover;
+do not run them against a healthy manually started deployment until the milestone
+approval gate is cleared:
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable firstmate-gateway-remote.service firstmate-gateway-tunnel.service
+systemctl --user start firstmate-gateway-remote.service
+systemctl --user start firstmate-gateway-tunnel.service
+systemctl --user status firstmate-gateway-remote.service firstmate-gateway-tunnel.service --no-pager
+journalctl --user -u firstmate-gateway-remote.service -u firstmate-gateway-tunnel.service -n 100 --no-pager
+systemctl --user stop firstmate-gateway-tunnel.service firstmate-gateway-remote.service
+systemctl --user restart firstmate-gateway-remote.service
+systemctl --user restart firstmate-gateway-tunnel.service
+```
+
+Starting the Gateway before the tunnel makes the expected order clear. Restarting a
+service only restarts its transport process; it does not invoke an MCP tool and cannot
+replay `firstmate_send`. A failed service is retried up to the template's bounded
+start limit; after that, inspect the journal and start it deliberately once the fault
+is fixed.
+
+### Upgrade and rollback
+
+Install a new verified artifact first. Do not remove the old version. After a later
+approved cutover, restart the Gateway so the new process resolves `active`; restart
+the tunnel only when its upstream connection needs re-establishing:
+
+```sh
+node dist/deploy.js --artifact "$HOME/.cache/firstmate-gateway/firstmate-gateway-<new-version>.tgz" \
+  --sha256 <new-64-lowercase-hex-digest> \
+  --root "$HOME/.local/share/firstmate-gateway"
+systemctl --user restart firstmate-gateway-remote.service
+```
+
+To roll back, select the retained prior directory from a reviewed local listing and
+atomically point `active` at that exact runtime. This does not delete either version:
+
+```sh
+firstmate-gateway-install rollback \
+  --root "$HOME/.local/share/firstmate-gateway" \
+  --runtime <previous-version>-<artifact-sha256-prefix>
+systemctl --user restart firstmate-gateway-remote.service
+```
+
+If the tunnel is healthy, do not restart it unnecessarily. If it was stopped as part
+of a controlled Gateway rollback, start it only after the Gateway listener is healthy.
+Keep the prior runtime until the new version has passed its checks and the rollback
+window has closed.
+
+### Uninstall
+
+Uninstall is a deliberate operator action. First disable and stop both units, then
+remove only the copied unit files and reload the user manager. Preserve the protected
+Gateway YAML and tunnel profile until the operator has decided they are no longer
+needed; revoke provider credentials through their providers, not by logging them:
+
+```sh
+systemctl --user disable --now firstmate-gateway-tunnel.service firstmate-gateway-remote.service
+rm "$HOME/.config/systemd/user/firstmate-gateway-tunnel.service" \
+   "$HOME/.config/systemd/user/firstmate-gateway-remote.service"
+systemctl --user daemon-reload
+# Version directories are immutable; make this deliberately reviewed tree removable.
+chmod -R u+w "$HOME/.local/share/firstmate-gateway"
+rm -rf "$HOME/.local/share/firstmate-gateway"
+```
+
+Review each path before removal. Uninstalling the runtime does not delete FirstMate,
+Herdr, tunnel-provider state, configuration, or transcripts.
+
+### Read-only health and failure localization
+
+Use only these checks while diagnosing an idle deployment; none sends a prompt or
+calls a Gateway tool:
+
+```sh
+systemctl --user is-active firstmate-gateway-remote.service firstmate-gateway-tunnel.service
+systemctl --user status firstmate-gateway-remote.service firstmate-gateway-tunnel.service --no-pager
+curl --max-time 3 -i http://127.0.0.1:<gateway-port>/mcp
+curl --max-time 3 -fsS <tunnel-health-base>/healthz
+curl --max-time 3 -fsS <tunnel-health-base>/readyz
+tunnel-client runtimes status <runtime-alias> --json
+curl --max-time 5 -fsS <issuer>/.well-known/openid-configuration
+curl --max-time 5 -fsS <jwks-uri>
+```
+
+The expected private states are:
+
+- Gateway process active and loopback `/mcp` returns `401` (or the equivalent
+  authentication-required response) without a bearer token; this proves the listener
+  and auth boundary, not an authorized MCP call.
+- Auth0/OIDC discovery and its JWKS endpoint return valid HTTPS JSON; the issuer,
+  signing key, exact external resource, expiry, scopes, and principal policy are still
+  enforced by the Gateway.
+- tunnel-client `/healthz` is HTTP 200 `live`; `/readyz` is HTTP 200 `ready`; structured
+  runtime status reports `process_running`, `healthy`, and `ready` when those fields
+  are available. A ready result may state that MCP initialize requires auth.
+- Main-channel forwarding is healthy only when tunnel status and the private Gateway
+  are both healthy. Do not use an unauthenticated or synthetic tool call as proof.
+- `firstmate-gateway doctor --json` reports Herdr/session/target availability without
+  sending or reading a prompt. Target availability is independent of process,
+  tunnel, and Auth0 health.
+
+Localize common failures in this order:
+
+| Evidence | Likely boundary | Safe next action |
+| --- | --- | --- |
+| Gateway inactive or `/mcp` connection refused | process/runtime | inspect unit status/journal and active pointer; do not touch tunnel config |
+| `/mcp` returns 401 but tunnel `/readyz` is not 200 | tunnel profile/control plane | run the tunnel client's read-only doctor/status and inspect its safe logs |
+| Gateway 401, tunnel ready, Auth0 discovery/JWKS unavailable | identity provider/network | inspect issuer reachability and provider status; do not weaken verification |
+| Gateway 401, tunnel ready, Auth0 healthy, connector gets 401 | token resource/issuer | compare the protected resource and configured external resource exactly |
+| Authenticated request gets 403 | authorization | inspect verified scope, principal, and target allowlist |
+| All boundaries healthy but target unavailable/ambiguous | Herdr/FirstMate | run `doctor`; fix session/CWD/agent identity without selecting a pane manually |
+| repeated restarts then failed unit | crash/start-limit | inspect journal, fix the package/config, then deliberately start once |
+
+### Controlled idle recovery validation (later, after the decision gate)
+
+This procedure is documented for a later approved maintenance window and has not been
+executed as part of this implementation. Confirm the target is idle, record the
+current active runtime and configuration fingerprints without printing contents, and
+ensure no operation is in flight. Do not send the Checkpoint F marker or any other
+prompt.
+
+1. Capture read-only baseline: both unit states, active pointer, Gateway loopback
+   `401`, tunnel `/healthz`, tunnel `/readyz`, structured runtime status, and Auth0
+   discovery/JWKS status.
+2. Deliberately terminate only the Gateway service's main process using the approved
+   user-service operation. Confirm systemd restarts it once, the pointer and config
+   are unchanged, and loopback `/mcp` returns to the same auth-required response.
+   Verify the tunnel did not require a Gateway configuration change and no MCP tool
+   invocation occurred.
+3. After Gateway recovery, deliberately terminate only the tunnel-client service's
+   main process. Confirm systemd restarts the tunnel, `/healthz` and `/readyz` return
+   200, and structured status returns `process_running`, `healthy`, and `ready`.
+   Confirm the healthy Gateway PID/process was not restarted unnecessarily.
+4. Re-check Auth0 discovery/JWKS and the tunnel's main-channel forwarding state through
+   read-only operator surfaces. Do not make an authenticated MCP call as a health test.
+5. If any recovery is uncertain, stop and report the exact boundary; do not retry a
+   potentially side-effecting request. Reboot persistence remains a separate test and
+   requires explicit approval; never reboot as part of this procedure.

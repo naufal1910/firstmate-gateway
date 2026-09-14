@@ -2,8 +2,9 @@
 /* global console, process */
 
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -41,12 +42,16 @@ try {
   const installedBin = join(consumer, 'node_modules', '.bin', 'firstmate-gateway');
   const installedMcpBin = join(consumer, 'node_modules', '.bin', 'firstmate-gateway-mcp');
   const installedRemoteBin = join(consumer, 'node_modules', '.bin', 'firstmate-gateway-remote');
+  const installedInstallerBin = join(consumer, 'node_modules', '.bin', 'firstmate-gateway-install');
   assert.equal(existsSync(installedCli), true, 'packed package must contain the CLI');
   assert.equal(existsSync(installedBin), true, 'clean install must link the CLI bin');
   assert.equal(existsSync(installedMcpBin), true, 'clean install must link the MCP bin');
   assert.equal(existsSync(installedRemoteBin), true, 'clean install must link the Auth0 remote bin');
+  assert.equal(existsSync(installedInstallerBin), true, 'clean install must link the deployment installer bin');
   assert.equal(existsSync(join(installedRoot, 'config', 'example.yaml')), true, 'packed package must contain config/example.yaml');
   assert.equal(existsSync(join(installedRoot, 'docs', 'operator-guide.md')), true, 'packed package must contain the operator guide');
+  assert.equal(existsSync(join(installedRoot, 'deploy', 'systemd', 'firstmate-gateway-remote.service')), true, 'packed package must contain the Gateway service template');
+  assert.equal(existsSync(join(installedRoot, 'deploy', 'systemd', 'firstmate-gateway-tunnel.service')), true, 'packed package must contain the tunnel service template');
   assert.equal(existsSync(join(installedRoot, 'config', 'local.yaml')), false, 'packed package must not contain local configuration');
   assert.equal(existsSync(join(installedRoot, '.env')), false, 'packed package must not contain environment files');
   assert.equal(existsSync(join(installedRoot, 'src')), false, 'packed package must not contain TypeScript sources');
@@ -69,6 +74,23 @@ try {
   });
   assert.equal(missingRemoteConfig.status, 1, 'remote runner must fail closed without configuration');
   assert.match(missingRemoteConfig.stderr, /^CONFIG_NOT_FOUND:/);
+
+  const runtimeRoot = join(consumer, 'runtime');
+  const digest = createHash('sha256').update(readFileSync(archive)).digest('hex');
+  const deployment = spawnSync(installedInstallerBin, [
+    '--artifact', archive,
+    '--sha256', digest,
+    '--root', runtimeRoot,
+    '--json',
+  ], { encoding: 'utf8', cwd: consumer });
+  assert.equal(deployment.status, 0, deployment.stderr);
+  const deploymentResult = JSON.parse(deployment.stdout);
+  assert.equal(deploymentResult.packageName, packageJson.name);
+  assert.equal(readlinkSync(join(runtimeRoot, 'active')), `versions/${deploymentResult.runtimeName}`);
+  assert.equal(existsSync(join(runtimeRoot, 'active', 'node_modules', '.bin', 'firstmate-gateway-remote')), true);
+  assert.equal(statSync(join(runtimeRoot, 'versions', deploymentResult.runtimeName)).mode & 0o222, 0, 'installed runtime must be immutable');
+  // Installed versions are read-only by design; make the temporary fixture removable.
+  execFileSync('chmod', ['-R', 'u+w', runtimeRoot]);
 
   const configPath = join(consumer, 'local.yaml');
   const initOutput = execFileSync(installedBin, ['init', '--path', configPath, '--json'], {
