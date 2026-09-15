@@ -38,6 +38,7 @@ Do not continue into later tasks without explicit user authorization.
 - `send` means prompt accepted/delivered; it does not mean FirstMate completed the job.
 - Prompt delivery is non-idempotent. Do not automatically retry an uncertain delivery.
 - Local/private operation is the default. Do not start a public listener by default.
+- Stable supervised deployment is documented in `docs/operator-guide.md` and generic units live in `deploy/systemd/`; keep runtime/configuration state outside Git.
 - Do not log prompt bodies, raw terminal output, semantic response content, or bearer tokens.
 
 ## Development Workflow

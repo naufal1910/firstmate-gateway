@@ -1,0 +1,26 @@
+# Generic user-service template. Copy to ~/.config/systemd/user/ and review paths.
+# This template never contains a credential or a machine-specific target.
+[Unit]
+Description=FirstMate Gateway secured loopback MCP endpoint
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Environment=FIRSTMATE_GATEWAY_CONFIG=%h/.config/firstmate-gateway/local.yaml
+Environment=PATH=%h/.local/share/firstmate-gateway/node/current/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/share/firstmate-gateway/active/node_modules/.bin/firstmate-gateway-remote
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=30s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+
+[Install]
+WantedBy=default.target

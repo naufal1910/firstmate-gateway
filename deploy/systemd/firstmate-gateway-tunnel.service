@@ -1,0 +1,25 @@
+# Generic user-service template. Copy to ~/.config/systemd/user/ and review paths.
+# The tunnel profile is machine-local and must refer to secrets with env:/file:.
+[Unit]
+Description=OpenAI Secure MCP Tunnel client for FirstMate Gateway
+Wants=firstmate-gateway-remote.service
+After=firstmate-gateway-remote.service network-online.target
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/tunnel-client run --profile-dir %h/.config/tunnel-client --profile firstmate-gateway
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=60s
+TimeoutStopSec=30s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/state/tunnel-client
+
+[Install]
+WantedBy=default.target

@@ -150,3 +150,18 @@ export {
   startAuth0RemoteMcp,
   type StartAuth0RemoteMcpOptions,
 } from './mcp-http-auth0.js';
+
+export {
+  defaultRuntimeRoot,
+  DEPLOYMENT_PACKAGE_NAME,
+  DeploymentError,
+  installPackedArtifact,
+  rollbackRuntime,
+  runtimeLayout,
+  validateRuntimeName,
+  type InstallRuntimeOptions,
+  type InstalledRuntime,
+  type RollbackRuntimeOptions,
+  type RolledBackRuntime,
+  type RuntimeLayout,
+} from './deployment.js';
